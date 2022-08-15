@@ -29,28 +29,27 @@ int main(int argc, char const *argv[]) {
 #else
 int main(int argc, char const *argv[]) {
 
-  block_la_t *b1 = NULL, *b2 = NULL, *b3 = NULL;
+  point_t *sp = NULL;
+  block_la_t *b = NULL;
+  program_la_t *p = NULL;
+  data_t t, tt, tq, lambda, f;
   machine_t *machine = machine_new("settings.ini");
-
-  b1 = block_la_new("N10 G00 X0 Y0 Z0", NULL, machine);
-  block_la_parse(b1);
-  b2 = block_la_new("N20 G1 X100 Y0 Z0 F1000 S2000", b1, machine);
-  block_la_parse(b2);
-  b3 = block_la_new("N30 G02 X100 Y50 I0 J25", b2, machine);
-  block_la_parse(b3);
-
-
-
-  block_la_print(b1, stdout);
-  block_la_calculate_velocities(b1);
-  block_print_velocity_profile(b1, stdout);
-  block_la_print(b2, stdout);
-  block_la_calculate_velocities(b2);
-  block_print_velocity_profile(b2, stdout);
-  block_la_print(b3, stdout);
-  block_la_calculate_velocities(b3);
-  block_print_velocity_profile(b3, stdout);
-
+  if (!machine) {
+    eprintf("Error creating machine instance\n");
+    exit(EXIT_FAILURE);
+  }
+  tq = machine_tq(machine);
+  p = program_la_new(argv[1]);
+  if (!p) {
+    eprintf("Could not create program, exiting.\n");
+    exit(EXIT_FAILURE);
+  }
+  if (program_la_parse(p, machine) == EXIT_FAILURE) {
+    eprintf("Could not parse program in %s, exiting.\n", argv[1]);
+    exit(EXIT_FAILURE);
+  }
+  program_la_print(p, stdout);
+  program_la_look_ahead(p);
 
 
   machine_free(machine);
