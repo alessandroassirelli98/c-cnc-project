@@ -25,8 +25,8 @@
 // Trapezoidal velocity profile
 typedef struct {
   data_t a, d;             // acceleration
-  data_t f, l;             // nominal feedrate and length
-  data_t fi, f1, f2, ff;   // initial and final feedrate
+  data_t l;             // nominal feedrate and length
+  data_t fi, f1, f, f2, ff;   // initial and final feedrate
   data_t t1, t2, tf;       // trapezoid times
   data_t dt;               // total time
 } block_la_profile_t;
@@ -46,6 +46,7 @@ typedef struct block_la{
   data_t length;         // total length
   data_t i, j, r;        // center coordinates and radius (if it is an arc)
   data_t theta0, dtheta; // arc initial angle and arc angle
+  data_t alpha_s, alpha_e; //angle of the tangent to the circle (if g02/g03) or angle of the line
   data_t acc;            // actual acceleration
   machine_t *machine;    // machine configuration
   block_la_profile_t *prof; // velocity profile
@@ -58,7 +59,6 @@ static int block_la_set_fields(block_la_t *b, char cmd, char *arg);
 static point_t *point_zero(block_la_t *b);
 static void block_la_compute(block_la_t *b);
 static int block_la_arc(block_la_t *b);
-static float block_la_segments_angle(point_t *p0, point_t *p1, point_t *p2);
 static float calc_final_velocity(block_la_t *b);
 static data_t quantize(data_t t, data_t tq, data_t *dq);
 
@@ -182,7 +182,10 @@ int block_la_parse(block_la_t *b) {
     // calculate feed profile
     b->acc = machine_A(b->machine);
     b->act_feedrate = b->feedrate;
-    b->prof->f = b->feedrate;
+    b->prof->f = b->feedrate,
+    // Calculate the angle of the segment
+    b->alpha_s = b->alpha_e = \
+              atan2(point_y(b->target) - point_y(point_zero(b)), point_x(b->target) - point_x(point_zero(b)));
     break;
   case ARC_CW:
   case ARC_CCW:
@@ -203,7 +206,7 @@ int block_la_parse(block_la_t *b) {
     // for the whole arc, but it is outside the scope.
     b->act_feedrate =
         MIN(b->feedrate, sqrt(machine_A(b->machine)/2.0 * b->r) * 60);
-    b->prof->f = b->feedrate;
+    b->prof->f = b->act_feedrate;
     // tangential acceleration: when composed with centripetal one, total
     // acceleration must be <= A
     // a^2 <= A^2 + v^4/r^2
@@ -227,11 +230,11 @@ int block_la_calculate_velocities(block_la_t *b){
     assert(b); 
     if ( b->type != RAPID ){
         data_t fi, ff;
-        if(!b->prev){ // if first block
+        if(!b->prev || b->prev->type == RAPID){ // if first block or after a rapid one
             fi = 0;
             ff = calc_final_velocity(b);
         }
-        else if (!b->next){ // if last block
+        else if (!b->next || b->next->type == RAPID){ // if last block or before a rapid one
             fi = b->prev->prof->ff;
             ff = 0;
         }
@@ -350,6 +353,12 @@ static int block_la_arc(block_la_t *b) {
   b->length = hypot(zf - z0, b->dtheta * b->r);
   // from now on , it's safer to drop radius angle
   b->r = fabs(b->r);
+
+  // Calculate the tangent to the arc in the initial point
+  b->alpha_s = M_PI/2 + atan2(y0 - yc, x0 - xc);
+
+  // Calculate the tangent to the arc in the final point
+  b->alpha_e = M_PI/2 + atan2(yf - yc, xf - xc);
   return 0;
 }
 
@@ -360,18 +369,10 @@ static point_t *point_zero(block_la_t *b) {
   return b->prev ? b->prev->target : machine_zero(b->machine);
 }
 
-// Return the angle alpha of the two segments passing throuh p0, p1, p2
-static float block_la_segments_angle(point_t *p0, point_t *p1, point_t *p2){
-    data_t theta1, theta2;
-
-    theta1 = atan2(point_y(p1) - point_y(p0), point_x(p1) - point_x(p0));
-    theta2 = atan2(point_y(p2) - point_y(p1), point_x(p2) - point_x(p1));
-    return (theta2-theta1);
-}
-
+// Compute the terminal velocity of the current block b
 static float calc_final_velocity(block_la_t *b){
     data_t alpha;
-    alpha = block_la_segments_angle(point_zero(b),b->target,b->next->target);
+    alpha = b->next->alpha_s - b->alpha_e;
     return fabs((b->prof->f + b->next->prof->f) / 2 * cos(alpha));
 }
 // Parse a single G-code word (cmd+arg)
