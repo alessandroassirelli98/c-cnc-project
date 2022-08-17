@@ -39,6 +39,17 @@ typedef enum {
   NO_MOTION
 } block_la_type_t;
 
+typedef enum{
+  AMA = 0,
+  A,
+  M,
+  DMD,
+  D,
+  AMD,
+  AD,
+  DA,
+  DMA
+} block_la_profile_type_t;
 
 //   _____                 _   _                 
 //  |  ___|   _ _ __   ___| |_(_) ___  _ __  ___ 
@@ -51,14 +62,18 @@ typedef enum {
 block_la_t *block_la_new(const char *line, block_la_t *prev, machine_t *cfg);
 void block_la_free(block_la_t *b);
 void block_la_print(block_la_t *b, FILE *out);
-void block_print_velocity_profile(block_la_t *b, FILE *out);
+void block_la_print_velocity_target(block_la_t *b, FILE *out);
+void block_la_print_velocity_profile(block_la_t *b);
 
 // ALGORITHMS ==================================================================
 
 // Parsing the G-code string. Returns an integer for success/failure
 int block_la_parse(block_la_t *b);
 
-int block_la_calculate_velocities(block_la_t*b);
+int block_la_calculate_velocities(block_la_t *b);
+
+int block_la_forward_pass(block_la_t *b);
+
 
 // Evaluate the value of lambda at a certaint time
 // also return speed in the parameter v

@@ -24,9 +24,10 @@
 
 // Trapezoidal velocity profile
 typedef struct {
-  data_t a, d;             // acceleration
   data_t l;             // nominal feedrate and length
-  data_t fi, f1, f, f2, ff;   // initial and final feedrate
+  data_t vi, v1, v, v2, vf;   // initial and final feedrate
+  data_t s1, s2;            //curvilinear absissa of feed transition
+  int mask;              // bitmask for feed profile
   data_t t1, t2, tf;       // trapezoid times
   data_t dt;               // total time
 } block_la_profile_t;
@@ -102,7 +103,8 @@ block_la_t *block_la_new(const char *line, block_la_t *prev, machine_t *cfg) {
     return NULL;
   }
 
-    b->prof->f1 = b->prof->f2 = b->prof->fi = b->prof->ff = 0;
+  b->prof->v1 = b->prof->v2 = b->prof->vi = b->prof->vf = 0;
+  b->prof->mask = 0b1111;
 
   b->machine = cfg;
   b->type = NO_MOTION;
@@ -144,10 +146,16 @@ void block_la_print(block_la_t *b, FILE *out) {
   free(start);
 }
 
-void block_print_velocity_profile(block_la_t *b, FILE *out){
+void block_la_print_velocity_target(block_la_t *b, FILE *out){
     assert(b);
-    fprintf(out, "%03lu, velocity targets :-> [%f, %f, %f]\n", b->n, b->prof->fi, b->prof->f, b->prof->ff);
+    fprintf(out, "%03lu, velocity targets :-> [%f, %f, %f]\n", b->n, (b->prof->vi)*60, (b->prof->v)*60, (b->prof->vf)*60);
 }
+
+void block_la_print_velocity_profile(block_la_t *b){
+    assert(b);
+    printf("%03lu, %f, %f, %f, %f, %f, %f, %f \n", b->n, b->length, b->prof->vi, b->prof->v, b->prof->vf, b->prof->s1, b->prof->s2, b->acc);
+}
+
 // ALGORITHMS ==================================================================
 
 // Parsing the G-code string. Returns an integer for success/failure
@@ -182,7 +190,7 @@ int block_la_parse(block_la_t *b) {
     // calculate feed profile
     b->acc = machine_A(b->machine);
     b->act_feedrate = b->feedrate;
-    b->prof->f = b->feedrate,
+    b->prof->v = (b->feedrate) / 60.0;
     // Calculate the angle of the segment
     b->alpha_s = b->alpha_e = \
               atan2(point_y(b->target) - point_y(point_zero(b)), point_x(b->target) - point_x(point_zero(b)));
@@ -195,7 +203,7 @@ int block_la_parse(block_la_t *b) {
       break;
     }
     // set corrected feedrate and acceleration
-    // centripetal acc = f^2/r, must be <= A
+    // centripetal acc = v^2/r, must be <= A
     // INI file gives A in mm/s^2, feedrate is given in mm/min
     // We divide by two because, in the critical condition where we have 
     // the maximum feedrate, in the following equation for calculating the 
@@ -206,7 +214,7 @@ int block_la_parse(block_la_t *b) {
     // for the whole arc, but it is outside the scope.
     b->act_feedrate =
         MIN(b->feedrate, sqrt(machine_A(b->machine)/2.0 * b->r) * 60);
-    b->prof->f = b->act_feedrate;
+    b->prof->v = (b->act_feedrate) / 60.0;
     // tangential acceleration: when composed with centripetal one, total
     // acceleration must be <= A
     // a^2 <= A^2 + v^4/r^2
@@ -229,23 +237,45 @@ int block_la_parse(block_la_t *b) {
 int block_la_calculate_velocities(block_la_t *b){
     assert(b); 
     if ( b->type != RAPID ){
-        data_t fi, ff;
+        data_t vi, vf;
         if(!b->prev || b->prev->type == RAPID){ // if first block or after a rapid one
-            fi = 0;
-            ff = calc_final_velocity(b);
+            vi = 0;
+            vf = calc_final_velocity(b);
         }
         else if (!b->next || b->next->type == RAPID){ // if last block or before a rapid one
-            fi = b->prev->prof->ff;
-            ff = 0;
+            vi = b->prev->prof->vf;
+            vf = 0;
         }
         else{ // otherwise
-            fi = b->prev->prof->ff;
-            ff = calc_final_velocity(b);
+            vi = b->prev->prof->vf;
+            vf = calc_final_velocity(b);
         }
-        b->prof->fi = fi;
-        b->prof->ff = ff;
+        b->prof->vi = vi;
+        b->prof->vf = vf;
     }
     return 0;
+}
+
+
+int block_la_forward_pass(block_la_t *b){
+  assert(b);
+  if(b->type == RAPID) return 0;
+  data_t v_max;
+
+  // Maximum final velocity that can be reached in the current block
+  v_max = sqrt(2*b->acc * b->length + pow((b->prof->vi),2));
+
+  if (b->prof->vf > v_max){
+    b->prof->vf = v_max;
+    b->next->prof->vi = v_max;
+  }
+  b->prof->s1 = (pow(b->prof->v, 2) - pow(b->prof->vi, 2)) / (2 * b->acc);
+  b->prof->s2 = b->length + (pow(b->prof->v, 2) - pow(b->prof->vf, 2)) / (2 * b->acc);
+
+  b->prof->mask &= (b->prof->s1 < 0) ? 0b1011 : 0b1111;
+  b->prof->mask &= (b->prof->s2 > b->length) ? 0b0111 : 0b1111;
+
+  return 0;
 }
 
 
@@ -334,7 +364,7 @@ static int block_la_arc(block_la_t *b) {
     yc = y0 + b->j;
     r2 = hypot(xf - xc, yf - yc);
     if (fabs(r - r2) > machine_error(b->machine)) {
-      fprintf(stderr, "Arc endpoints mismatch error (%f)\n", r - r2);
+      fprintf(stderr, "Arc endpoints mismatch error (%v)\n", r - r2);
       return 1;
     }
     b->r = r;
@@ -373,7 +403,7 @@ static point_t *point_zero(block_la_t *b) {
 static float calc_final_velocity(block_la_t *b){
     data_t alpha;
     alpha = b->next->alpha_s - b->alpha_e;
-    return fabs((b->prof->f + b->next->prof->f) / 2 * cos(alpha));
+    return fabs((b->prof->v + b->next->prof->v) / 2 * cos(alpha));
 }
 // Parse a single G-code word (cmd+arg)
 static int block_la_set_fields(block_la_t *b, char cmd, char *arg) {

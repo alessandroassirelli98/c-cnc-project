@@ -131,9 +131,18 @@ int program_la_parse(program_la_t *p, machine_t *cfg) {
 
 int program_la_look_ahead(program_la_t *p){
   block_la_t *b = p->first;
+  eprintf("Computing velocities ...\n");
   while (b){
     block_la_calculate_velocities(b);
-    block_print_velocity_profile(b, stderr);
+    block_la_print_velocity_target(b, stderr);
+    b = block_la_next(b);
+  }
+
+  eprintf("Computing forward pass ...\n");
+  b = p->first;
+  while (b){
+    block_la_forward_pass(b);
+    block_la_print_velocity_profile(b);
     b = block_la_next(b);
   }
   return 0;

@@ -48,7 +48,7 @@ int main(int argc, char const *argv[]) {
     eprintf("Could not parse program in %s, exiting.\n", argv[1]);
     exit(EXIT_FAILURE);
   }
-  program_la_print(p, stdout);
+  program_la_print(p, stderr);
   program_la_look_ahead(p);
 
 
