@@ -73,6 +73,7 @@ int block_la_parse(block_la_t *b);
 int block_la_calculate_velocities(block_la_t *b);
 
 int block_la_forward_pass(block_la_t *b);
+int block_la_backward_pass(block_la_t *b);
 
 
 // Evaluate the value of lambda at a certaint time
@@ -94,6 +95,7 @@ char *block_la_line(const block_la_t *b);
 size_t block_la_n(const block_la_t *b);
 point_t *block_la_center(const block_la_t *b);
 block_la_t *block_la_next(const block_la_t *b);
+block_la_t *block_la_prev(const block_la_t *b);
 point_t *block_la_target(const block_la_t *b);
 
 

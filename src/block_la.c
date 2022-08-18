@@ -61,6 +61,7 @@ static point_t *point_zero(block_la_t *b);
 static void block_la_compute(block_la_t *b);
 static int block_la_arc(block_la_t *b);
 static float calc_final_velocity(block_la_t *b);
+static void calc_s1_s2(block_la_t *b, data_t *s1, data_t *s2, int sign);
 static data_t quantize(data_t t, data_t tq, data_t *dq);
 
 //   _____                 _   _
@@ -153,7 +154,8 @@ void block_la_print_velocity_target(block_la_t *b, FILE *out){
 
 void block_la_print_velocity_profile(block_la_t *b){
     assert(b);
-    printf("%03lu, %f, %f, %f, %f, %f, %f, %f \n", b->n, b->length, b->prof->vi, b->prof->v, b->prof->vf, b->prof->s1, b->prof->s2, b->acc);
+    printf("%03lu, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->vi, b->prof->v,\
+                                                       b->prof->vf, b->prof->s1, b->prof->s2, b->prof->mask,b->acc);
 }
 
 // ALGORITHMS ==================================================================
@@ -260,7 +262,11 @@ int block_la_calculate_velocities(block_la_t *b){
 int block_la_forward_pass(block_la_t *b){
   assert(b);
   if(b->type == RAPID) return 0;
+
   data_t v_max;
+  data_t *s1, *s2;
+  s1 = calloc(1, sizeof(data_t));
+  s2 = calloc(1, sizeof(data_t));
 
   // Maximum final velocity that can be reached in the current block
   v_max = sqrt(2*b->acc * b->length + pow((b->prof->vi),2));
@@ -269,15 +275,66 @@ int block_la_forward_pass(block_la_t *b){
     b->prof->vf = v_max;
     b->next->prof->vi = v_max;
   }
-  b->prof->s1 = (pow(b->prof->v, 2) - pow(b->prof->vi, 2)) / (2 * b->acc);
-  b->prof->s2 = b->length + (pow(b->prof->v, 2) - pow(b->prof->vf, 2)) / (2 * b->acc);
 
-  b->prof->mask &= (b->prof->s1 < 0) ? 0b1011 : 0b1111;
-  b->prof->mask &= (b->prof->s2 > b->length) ? 0b0111 : 0b1111;
+  calc_s1_s2(b, s1, s2, 1);
 
+  if (*s1 >= 0){
+    b->prof->mask &= 0b1111;
+    b->prof->s1 = (*s1 <= b->length)? *s1 : b->length;
+  }
+  else b->prof->mask &= 0b1011;
+
+  if (*s2 <= b->length){
+    b->prof->mask &= 0b1111; 
+    b->prof->s2 = (*s2 >= 0) ? *s2 : 0;
+  }
+  else b->prof->mask &= 0b0111;
+
+
+  free(s1);
+  free(s2);
   return 0;
 }
 
+int block_la_backward_pass(block_la_t *b){
+  assert(b);
+  if(b->type == RAPID) return 0;
+
+  data_t v_max;
+  data_t *s1, *s2;
+  int temp_mask = 0b1111;
+
+  s1 = calloc(1, sizeof(data_t));
+  s2 = calloc(1, sizeof(data_t));
+
+  v_max = sqrt(2*b->acc * b->length + pow((b->prof->vf),2));
+  if(b->prof->vi > v_max){
+    b->prof->vi = v_max;
+    b->prev->prof->vf = v_max;
+  }
+
+  calc_s1_s2(b, s1, s2, -1);
+
+  if (*s1 >= 0){
+    temp_mask &= 0b1011;
+    b->prof->s1 = (*s1 <= b->length)? *s1 : b->length;
+  }
+  else temp_mask &= 0b1110;
+
+  if (*s2 <= b->length){
+    temp_mask &= 0b0111; 
+    b->prof->s2 = (*s2 >= 0) ? *s2 : 0;
+  }
+  else temp_mask &= 0b1101;
+  
+  // If the backward pass didn't find any point, then it's all abaut azcceleration
+  temp_mask &= (temp_mask == 0b1111) ? 0b1100 : 0b1111; 
+  b->prof->mask &= temp_mask;
+  
+  free(s1);
+  free(s2);
+  return 0;
+}
 
 // Evaluate the value of lambda at a certaint time
 data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
@@ -303,6 +360,7 @@ block_la_getter(size_t, n, n);
 block_la_getter(data_t, r, r);
 block_la_getter(point_t *, center, center);
 block_la_getter(block_la_t *, next, next);
+block_la_getter(block_la_t *, prev, prev);
 block_la_getter(point_t *, target, target);
 block_la_getter(data_t, act_feedrate, act_feedrate);
 
@@ -405,6 +463,15 @@ static float calc_final_velocity(block_la_t *b){
     alpha = b->next->alpha_s - b->alpha_e;
     return fabs((b->prof->v + b->next->prof->v) / 2 * cos(alpha));
 }
+
+// Compute s1 and s2 of the block, sign should be 1 for forward, -1 for backward
+static void calc_s1_s2(block_la_t *b, data_t *s1, data_t *s2, int sign){
+  assert(s1 && s2);
+
+  *s1 = (pow(b->prof->v, 2) - pow(b->prof->vi, 2)) / (2 * sign *b->acc);
+  *s2 = b->length + (pow(b->prof->v, 2) - pow(b->prof->vf, 2)) / (2 * sign * b->acc);
+}
+
 // Parse a single G-code word (cmd+arg)
 static int block_la_set_fields(block_la_t *b, char cmd, char *arg) {
   assert(b && arg);
