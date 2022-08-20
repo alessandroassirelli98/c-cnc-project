@@ -25,11 +25,11 @@
 // Trapezoidal velocity profile
 typedef struct {
   data_t l;             // nominal feedrate and length
-  data_t vi, v1, v, v2, vf;   // initial and final feedrate
+  data_t vi, v1, v, v_inter, v2, vf;   // initial and final feedrate
   data_t vi_fwd, vf_fwd;     //Only for debug prposes
   data_t s1, s2, s_inter;  //curvilinear absissa of feed transition
   int mask;              // bitmask for feed profile
-  data_t t1, t2, tf;       // trapezoid times
+  data_t t1, t_inter, t2, tf;       // trapezoid times
   data_t dt;               // total time
 } block_la_profile_t;
 
@@ -106,7 +106,7 @@ block_la_t *block_la_new(const char *line, block_la_t *prev, machine_t *cfg) {
   }
 
   //b->prof->v1 = b->prof->v2 = b->prof->vi = b->prof->vf = 0;
-  b->prof->mask = 0b11111;
+  b->prof->mask = 0b01111;
 
   b->machine = cfg;
   b->type = NO_MOTION;
@@ -336,16 +336,13 @@ int block_la_backward_pass(block_la_t *b){
   b->prof->mask &= temp_mask;
 
   // In case of short block
-  if (b->prof->mask == 0b10110 && b->prof->s1 > b->prof->s2){ // AD block
+  if (b->prof->mask == 0b00110 && b->prof->s1 > b->prof->s2){ // AD block
     b->prof->s_inter = b->length/2 + (pow(b->prof->vf, 2) - pow(b->prof->vi, 2))/(4*b->acc);
+    b->prof->mask = 0b10110;
   }
   else if (b->prof->mask == 0b11001 && b->prof->s1 > b->prof->s2){ //DA block
     b->prof->s_inter = (pow(b->prof->vi, 2) + pow(b->prof->vf, 2))/(4*b->acc) - b->length/2;
-  }
-  else{
-    // If it doesn't find s_inter, then we have for sure maintenance for a while
-    // And we need to reach v
-    b->prof->mask &= 0b01111; 
+    b->prof->mask = 0b11001;
   }
 
 
@@ -355,7 +352,24 @@ int block_la_backward_pass(block_la_t *b){
 }
 
 int block_la_compute_timings(block_la_t *b){
+  assert(b);
+  data_t sign, plus_minus;
+  // Short block: no maintenance and the first bit of the mask is true
+  if(b->type == RAPID) return 0;
+  if (b->prof->mask & 0b10000){
+    // If the first acceleration bit is set, it means we have to accelerate, otherwise decelerate
+    sign = ((b->prof->mask & 0b10101) == 0b10100) ? 1 : -1;
+    //plus_minus = (b->prof->s_inter == 0) ? 1 : 1;
 
+    b->prof->t_inter = 1/(sign * b->acc) * (-b->prof->vi + sqrt(2 * sign * b->acc * b->prof->s_inter + pow(b->prof->vi, 2)));
+    b->prof->v_inter = b->prof->vi + sign * b->acc * b->prof->t_inter;
+
+    // If the second acceleration bit is set, it means we have to accelerate, otherwise decelerate
+    sign = ((b->prof->mask & 0b11010) == 0b11000) ? 1 : -1;
+    b->prof->tf = 1/(sign * b->acc) * (-b->prof->v_inter + sqrt(2 * sign * b->acc * (b->length - b->prof->s_inter) + pow(b->prof->v_inter, 2)));
+  }
+
+  return 0;
 }
 // Evaluate the value of lambda at a certaint time
 data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {

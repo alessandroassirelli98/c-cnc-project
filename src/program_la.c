@@ -152,6 +152,14 @@ int program_la_look_ahead(program_la_t *p){
     block_la_print_velocity_profile(b);
     b = block_la_prev(b);
   }
+
+  eprintf("Computing timings ...\n");
+  b = p->first;
+  while (b){
+    block_la_compute_timings(b);
+    b = block_la_next(b);
+  }
+
   return 0;
 }
 
