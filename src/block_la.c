@@ -26,7 +26,8 @@
 typedef struct {
   data_t l;             // nominal feedrate and length
   data_t vi, v1, v, v2, vf;   // initial and final feedrate
-  data_t s1, s2;            //curvilinear absissa of feed transition
+  data_t vi_fwd, vf_fwd;     //Only for debug prposes
+  data_t s1, s2, s_inter;  //curvilinear absissa of feed transition
   int mask;              // bitmask for feed profile
   data_t t1, t2, tf;       // trapezoid times
   data_t dt;               // total time
@@ -104,8 +105,8 @@ block_la_t *block_la_new(const char *line, block_la_t *prev, machine_t *cfg) {
     return NULL;
   }
 
-  b->prof->v1 = b->prof->v2 = b->prof->vi = b->prof->vf = 0;
-  b->prof->mask = 0b1111;
+  //b->prof->v1 = b->prof->v2 = b->prof->vi = b->prof->vf = 0;
+  b->prof->mask = 0b11111;
 
   b->machine = cfg;
   b->type = NO_MOTION;
@@ -154,8 +155,8 @@ void block_la_print_velocity_target(block_la_t *b, FILE *out){
 
 void block_la_print_velocity_profile(block_la_t *b){
     assert(b);
-    printf("%03lu, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->vi, b->prof->v,\
-                                                       b->prof->vf, b->prof->s1, b->prof->s2, b->prof->mask,b->acc);
+    printf("%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->vi, b->prof->v,\
+                                                       b->prof->vf, b->prof->vi_fwd, b->prof->vf_fwd, b->prof->s_inter, b->prof->s1, b->prof->s2, b->prof->mask,b->acc);
 }
 
 // ALGORITHMS ==================================================================
@@ -279,16 +280,19 @@ int block_la_forward_pass(block_la_t *b){
   calc_s1_s2(b, s1, s2, 1);
 
   if (*s1 >= 0){
-    b->prof->mask &= 0b1111;
-    b->prof->s1 = (*s1 <= b->length)? *s1 : b->length;
+    b->prof->mask &= 0b11111;
+    b->prof->s1 = (*s1 < b->length)? *s1 : b->length;
   }
-  else b->prof->mask &= 0b1011;
+  else b->prof->mask &= 0b11011;
 
   if (*s2 <= b->length){
-    b->prof->mask &= 0b1111; 
+    b->prof->mask &= 0b11111; 
     b->prof->s2 = (*s2 >= 0) ? *s2 : 0;
   }
-  else b->prof->mask &= 0b0111;
+  else b->prof->mask &= 0b10111;
+
+  b->prof->vi_fwd = b->prof->vi;
+  b->prof->vf_fwd = b->prof->vf;
 
 
   free(s1);
@@ -302,7 +306,7 @@ int block_la_backward_pass(block_la_t *b){
 
   data_t v_max;
   data_t *s1, *s2;
-  int temp_mask = 0b1111;
+  int temp_mask = 0b11111;
 
   s1 = calloc(1, sizeof(data_t));
   s2 = calloc(1, sizeof(data_t));
@@ -316,26 +320,43 @@ int block_la_backward_pass(block_la_t *b){
   calc_s1_s2(b, s1, s2, -1);
 
   if (*s1 >= 0){
-    temp_mask &= 0b1011;
+    temp_mask &= 0b11011;
     b->prof->s1 = (*s1 <= b->length)? *s1 : b->length;
   }
-  else temp_mask &= 0b1110;
+  else temp_mask &= 0b11110;
 
   if (*s2 <= b->length){
-    temp_mask &= 0b0111; 
+    temp_mask &= 0b10111; 
     b->prof->s2 = (*s2 >= 0) ? *s2 : 0;
   }
-  else temp_mask &= 0b1101;
+  else temp_mask &= 0b11101;
   
-  // If the backward pass didn't find any point, then it's all abaut azcceleration
-  temp_mask &= (temp_mask == 0b1111) ? 0b1100 : 0b1111; 
+  // If the backward pass didn't find any point, then it's all abaut acceleration
+  temp_mask &= (temp_mask == 0b11111) ? 0b11100 : 0b11111; 
   b->prof->mask &= temp_mask;
-  
+
+  // In case of short block
+  if (b->prof->mask == 0b10110 && b->prof->s1 > b->prof->s2){ // AD block
+    b->prof->s_inter = b->length/2 + (pow(b->prof->vf, 2) - pow(b->prof->vi, 2))/(4*b->acc);
+  }
+  else if (b->prof->mask == 0b11001 && b->prof->s1 > b->prof->s2){ //DA block
+    b->prof->s_inter = (pow(b->prof->vi, 2) + pow(b->prof->vf, 2))/(4*b->acc) - b->length/2;
+  }
+  else{
+    // If it doesn't find s_inter, then we have for sure maintenance for a while
+    // And we need to reach v
+    b->prof->mask &= 0b01111; 
+  }
+
+
   free(s1);
   free(s2);
   return 0;
 }
 
+int block_la_compute_timings(block_la_t *b){
+
+}
 // Evaluate the value of lambda at a certaint time
 data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
 

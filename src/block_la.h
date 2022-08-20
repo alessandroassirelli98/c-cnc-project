@@ -40,12 +40,9 @@ typedef enum {
 } block_la_type_t;
 
 typedef enum{
-  AMA = 0,
-  A,
-  M,
-  DMD,
-  D,
-  AMD,
+  AMA = 0b1100,
+  DMD = 0b0011,
+  AMD = 0b0110,
   AD,
   DA,
   DMA
@@ -74,7 +71,7 @@ int block_la_calculate_velocities(block_la_t *b);
 
 int block_la_forward_pass(block_la_t *b);
 int block_la_backward_pass(block_la_t *b);
-
+int block_la_compute_timings(block_la_t *b);
 
 // Evaluate the value of lambda at a certaint time
 // also return speed in the parameter v
