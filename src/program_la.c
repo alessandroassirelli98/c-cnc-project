@@ -149,7 +149,6 @@ int program_la_look_ahead(program_la_t *p){
   b = p->last;
   while (b){
     block_la_backward_pass(b);
-    block_la_print_velocity_profile(b);
     b = block_la_prev(b);
   }
 
@@ -157,6 +156,7 @@ int program_la_look_ahead(program_la_t *p){
   b = p->first;
   while (b){
     block_la_compute_timings(b);
+     block_la_print_velocity_profile(b);
     b = block_la_next(b);
   }
 

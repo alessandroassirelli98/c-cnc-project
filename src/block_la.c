@@ -106,7 +106,7 @@ block_la_t *block_la_new(const char *line, block_la_t *prev, machine_t *cfg) {
   }
 
   //b->prof->v1 = b->prof->v2 = b->prof->vi = b->prof->vf = 0;
-  b->prof->mask = 0b01111;
+  b->prof->mask = 0b11111;
 
   b->machine = cfg;
   b->type = NO_MOTION;
@@ -155,8 +155,9 @@ void block_la_print_velocity_target(block_la_t *b, FILE *out){
 
 void block_la_print_velocity_profile(block_la_t *b){
     assert(b);
-    printf("%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->vi, b->prof->v,\
-                                                       b->prof->vf, b->prof->vi_fwd, b->prof->vf_fwd, b->prof->s_inter, b->prof->s1, b->prof->s2, b->prof->mask,b->acc);
+    printf("%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->vi, b->prof->v,\
+                                                       b->prof->vf, b->prof->vi_fwd, b->prof->vf_fwd, b->prof->v1, b->prof->v_inter, b->prof->v2,\
+                                                       b->prof->s_inter, b->prof->s1, b->prof->s2, b->prof->mask,b->acc);
 }
 
 // ALGORITHMS ==================================================================
@@ -281,13 +282,13 @@ int block_la_forward_pass(block_la_t *b){
 
   if (*s1 >= 0){
     b->prof->mask &= 0b11111;
-    b->prof->s1 = (*s1 < b->length)? *s1 : b->length;
+    b->prof->s1 = *s1;
   }
   else b->prof->mask &= 0b11011;
 
   if (*s2 <= b->length){
     b->prof->mask &= 0b11111; 
-    b->prof->s2 = (*s2 >= 0) ? *s2 : 0;
+    b->prof->s2 = *s2;
   }
   else b->prof->mask &= 0b10111;
 
@@ -315,19 +316,20 @@ int block_la_backward_pass(block_la_t *b){
   if(b->prof->vi > v_max){
     b->prof->vi = v_max;
     b->prev->prof->vf = v_max;
+    b->prof->mask &= 0b10011;
   }
 
   calc_s1_s2(b, s1, s2, -1);
 
   if (*s1 >= 0){
     temp_mask &= 0b11011;
-    b->prof->s1 = (*s1 <= b->length)? *s1 : b->length;
+    b->prof->s1 = *s1;
   }
   else temp_mask &= 0b11110;
 
   if (*s2 <= b->length){
     temp_mask &= 0b10111; 
-    b->prof->s2 = (*s2 >= 0) ? *s2 : 0;
+    b->prof->s2 = *s2;
   }
   else temp_mask &= 0b11101;
   
@@ -336,16 +338,22 @@ int block_la_backward_pass(block_la_t *b){
   b->prof->mask &= temp_mask;
 
   // In case of short block
-  if (b->prof->mask == 0b00110 && b->prof->s1 > b->prof->s2){ // AD block
+  // This means the velocity is under the desired one
+  if (b->prof->mask == 0b10110 && b->prof->s1 > b->prof->s2){ 
     b->prof->s_inter = b->length/2 + (pow(b->prof->vf, 2) - pow(b->prof->vi, 2))/(4*b->acc);
-    b->prof->mask = 0b10110;
+    if (abs (b->prof->s_inter - b->length) < 1e-9) b->prof->mask = 0b10100; // If the intersection is in L, then we have only acceleration
+    else if (abs (b->prof->s_inter - 0) < 1e-9) b->prof->mask = 0b10010; // If it's in zero, then only deceleration
+
   }
+  // This means the velocity is above the desired one
   else if (b->prof->mask == 0b11001 && b->prof->s1 > b->prof->s2){ //DA block
-    b->prof->s_inter = (pow(b->prof->vi, 2) + pow(b->prof->vf, 2))/(4*b->acc) - b->length/2;
-    b->prof->mask = 0b11001;
+    b->prof->s_inter = (pow(b->prof->vi, 2) - pow(b->prof->vf, 2))/(4*b->acc) + b->length/2;
+    if (abs (b->prof->s_inter - b->length) < 1e-9) b->prof->mask = 0b10001; // If the intersection is in L, then we have only deceleration
+    else if (abs (b->prof->s_inter - 0) < 1e-9) b->prof->mask = 0b11000; // If it's in zero, then only acceleration
   }
 
-
+  else if (b->prof->s1 < b->length && b->prof->s2 > 0) b->prof->mask &= 0b01111; //otherwise it's not a short block
+  
   free(s1);
   free(s2);
   return 0;
@@ -353,7 +361,7 @@ int block_la_backward_pass(block_la_t *b){
 
 int block_la_compute_timings(block_la_t *b){
   assert(b);
-  data_t sign, plus_minus;
+  data_t sign, v_check;
   // Short block: no maintenance and the first bit of the mask is true
   if(b->type == RAPID) return 0;
   if (b->prof->mask & 0b10000){
@@ -367,6 +375,33 @@ int block_la_compute_timings(block_la_t *b){
     // If the second acceleration bit is set, it means we have to accelerate, otherwise decelerate
     sign = ((b->prof->mask & 0b11010) == 0b11000) ? 1 : -1;
     b->prof->tf = 1/(sign * b->acc) * (-b->prof->v_inter + sqrt(2 * sign * b->acc * (b->length - b->prof->s_inter) + pow(b->prof->v_inter, 2)));
+    v_check = b->prof->v_inter + sign * b->acc * b->prof->tf;
+
+    if (abs(v_check - b->prof->vf) > 1e-9){
+      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned \n \
+      the error is: %f", b->n, (b->prof->vf - v_check));
+      //exit(EXIT_FAILURE);
+    }
+  }
+
+  // long block
+  else{
+    sign = ((b->prof->mask & 0b00101) == 0b00100) ? 1 : -1;
+    b->prof->t1 = 1/(sign * b->acc) * (-b->prof->vi + sqrt(2 * sign * b->acc * b->prof->s1 + pow(b->prof->vi, 2)));
+    b->prof->v1 = b->prof->vi + sign * b->acc * b->prof->t1;
+
+    b->prof->t2 = (b->prof->s2 - b->prof->s1)/b->prof->v;
+    b->prof->v2 = b->prof->v;
+
+    sign = ((b->prof->mask & 0b01010) == 0b01000) ? 1 : -1;
+    b->prof->tf = 1/(sign * b->acc) * (-b->prof->v + sqrt(2 * sign * b->acc * (b->length - b->prof->s2)+ pow(b->prof->v, 2)));
+    v_check = b->prof->v + sign * b->acc * b->prof->tf;
+    if (abs(v_check - b->prof->vf) > 1e-9){
+      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned \n \
+      the error is: %f", b->n, (b->prof->vf - v_check));
+      //exit(EXIT_FAILURE);
+    }
+
   }
 
   return 0;
