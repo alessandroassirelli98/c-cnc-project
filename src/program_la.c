@@ -156,7 +156,7 @@ int program_la_look_ahead(program_la_t *p, machine_t *m){
   data_t k, t, t_star = 0;
   b = p->first;
   while (b){
-    block_la_compute_timings(b);
+    block_la_compute(b);
     t += block_la_dt(b);
     block_la_print_velocity_profile(b);
     b = block_la_next(b);

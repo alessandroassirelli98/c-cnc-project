@@ -31,6 +31,7 @@ typedef struct {
   int mask;              // bitmask for feed profile
   data_t d_t1, d_tm, d_t2;       // trapezoid times
   data_t dt;               // total time
+  data_t a, d;               // profile acceleration deceleration
 } block_la_profile_t;
 
 // block_la object structure
@@ -59,7 +60,7 @@ typedef struct block_la{
 // STATIC FUNCTIONS (for internal use only) ====================================
 static int block_la_set_fields(block_la_t *b, char cmd, char *arg);
 static point_t *point_zero(block_la_t *b);
-static void block_la_compute(block_la_t *b);
+static int block_la_compute_raw_timings(block_la_t *b);
 static int block_la_arc(block_la_t *b);
 static float calc_final_velocity(block_la_t *b);
 static void calc_s1_s2(block_la_t *b, data_t *s1, data_t *s2, int sign);
@@ -375,60 +376,46 @@ int block_la_backward_pass(block_la_t *b){
   return 0;
 }
 
+int block_la_compute(block_la_t *b){
+  data_t vi, vf, v, dt_star, d_t1, d_t2, d_tm, dq;
+  data_t a, d;
+  data_t l, v_star;
 
-// Compute timings and velocities without taking into account the timesteps
-int block_la_compute_timings(block_la_t *b){
-  assert(b);
-  data_t sign, v_check, dq;
-  // Short block: no maintenance and the first bit of the mask is true
-  if(b->type == RAPID) return 0;
-  if (b->prof->mask & 0b10000){
-    // If the first acceleration bit is set, it means we have to accelerate, otherwise decelerate
-    sign = ((b->prof->mask & 0b10101) == 0b10100) ? 1 : -1;
-    //plus_minus = (b->prof->s_inter == 0) ? 1 : 1;
+  if (b->type == RAPID) return 0;
+  block_la_compute_raw_timings(b);
 
-    b->prof->d_t1 = 1/(sign * b->acc) * (-b->prof->vi + sqrt(2 * sign * b->acc * b->prof->s_inter + pow(b->prof->vi, 2)));
-    b->prof->v_inter = b->prof->vi + sign * b->acc * b->prof->d_t1;
-
-    // If the second acceleration bit is set, it means we have to accelerate, otherwise decelerate
-    sign = ((b->prof->mask & 0b11010) == 0b11000) ? 1 : -1;
-    b->prof->d_t2 = 1/(sign * b->acc) * (-b->prof->v_inter + sqrt(2 * sign * b->acc * (b->length - b->prof->s_inter) + pow(b->prof->v_inter, 2)));
-    v_check = b->prof->v_inter + sign * b->acc * (b->prof->d_t2);
-
-    if (fabs(v_check - b->prof->vf) > TOL){
-      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned\
-      the error is: %f \n", b->n, (b->prof->vf - v_check));
-      //exit(EXIT_FAILURE);
-    }
+  // v = b->prof->v;
+  // vi = b->prof->vi;
+  // vf = b->prof->vf;
+  // d_t1 = b->prof->d_t1;
+  // d_t2 = b->prof->d_t2;
+  // d_tm = b->prof->d_tm;
+  // l = b->length;
 
 
+  // if (b->prof->d_tm > 0){
+  //   dt_star = quantize(d_t1 + d_tm + d_t2, machine_tq(b->machine), &dq);
+  //   // Maintenance duration
+  //   d_tm += dq;
+  //   // Real maintenance velocity
+  //   v_star = (2*l - vi * d_t1 - vf * d_t2)/(d_t1 + d_t2 + 2*dt_star); 
+  // }
 
-  }
+  // else{
+  //   dt_star = quantize(d_t1 + d_t2, machine_tq(b->machine), &dq);
+  //   d_tm = 0;
+  //   d_t2 += dq;
+  //   v_star = (2 * l)/(d_t1 + d_t2);
+  // }
 
-  // long block
-  else{
-    data_t v, a, d;
-    sign = ((b->prof->mask & 0b00101) == 0b00100) ? 1 : -1;
-    b->prof->d_t1 = 1/(sign * b->acc) * (-b->prof->vi + sqrt(2 * sign * b->acc * b->prof->s1 + pow(b->prof->vi, 2)));
-    b->prof->v1 = b->prof->vi + sign * b->acc * b->prof->d_t1;
+  // a = (v_star - vi)/d_t1;
+  // d = (vf - v_star)/d_t2;
 
-    b->prof->d_tm = (b->prof->s2 - b->prof->s1)/b->prof->v;
-    b->prof->v2 = b->prof->v;
+  // b->prof->a = a;
+  // b->prof->d = d;
+  // b->prof->v = v_star;
+  // b->prof->d_tm = d_tm;
 
-    sign = ((b->prof->mask & 0b01010) == 0b01000) ? 1 : -1;
-    b->prof->d_t2 = 1/(sign * b->acc) * (-b->prof->v + sqrt(2 * sign * b->acc * (b->length - b->prof->s2)+ pow(b->prof->v, 2)));
-    v_check = b->prof->v + sign * b->acc * (b->prof->d_t2);
-    if (fabs(v_check - b->prof->vf) > TOL){
-      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned\
-      the error is: %f\n", b->n, (b->prof->vf - v_check));
-      //exit(EXIT_FAILURE);
-    }
-
-    v = (2*b->length - b->prof->vi * b->prof->d_t1 - b->prof->vf * b->prof->d_t2)/(b->prof->d_t1 + b->prof->d_t2 + 2);
-
-  }
-
-  return 0;
 }
 
 // Evaluate the value of lambda at a certaint time
@@ -478,9 +465,52 @@ static data_t quantize(data_t t, data_t tq, data_t *dq) {
   return q;
 }
 
-// Calcultare the velocity profile
-static void block_la_compute(block_la_t *b) {
-  
+// Compute timings and velocities without taking into account the timesteps
+static int block_la_compute_raw_timings(block_la_t *b){
+  assert(b);
+  data_t sign, v_check;
+  // Short block: no maintenance and the first bit of the mask is true
+  if(b->type == RAPID) return 0;
+  if (b->prof->mask & 0b10000){
+    // If the first acceleration bit is set, it means we have to accelerate, otherwise decelerate
+    sign = ((b->prof->mask & 0b10101) == 0b10100) ? 1 : -1;
+
+    b->prof->d_t1 = 1/(sign * b->acc) * (-b->prof->vi + sqrt(2 * sign * b->acc * b->prof->s_inter + pow(b->prof->vi, 2)));
+    b->prof->v_inter = b->prof->vi + sign * b->acc * b->prof->d_t1;
+
+    // If the second acceleration bit is set, it means we have to accelerate, otherwise decelerate
+    sign = ((b->prof->mask & 0b11010) == 0b11000) ? 1 : -1;
+    b->prof->d_t2 = 1/(sign * b->acc) * (-b->prof->v_inter + sqrt(2 * sign * b->acc * (b->length - b->prof->s_inter) + pow(b->prof->v_inter, 2)));
+    v_check = b->prof->v_inter + sign * b->acc * (b->prof->d_t2);
+
+    if (fabs(v_check - b->prof->vf) > TOL){
+      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned\
+      the error is: %f \n", b->n, (b->prof->vf - v_check));
+      //exit(EXIT_FAILURE);
+    }
+  }
+
+  // long block
+  else{
+    sign = ((b->prof->mask & 0b00101) == 0b00100) ? 1 : -1;
+    b->prof->d_t1 = 1/(sign * b->acc) * (-b->prof->vi + sqrt(2 * sign * b->acc * b->prof->s1 + pow(b->prof->vi, 2)));
+    b->prof->v1 = b->prof->vi + sign * b->acc * b->prof->d_t1;
+
+    b->prof->d_tm = (b->prof->s2 - b->prof->s1)/b->prof->v;
+    b->prof->v2 = b->prof->v;
+
+    sign = ((b->prof->mask & 0b01010) == 0b01000) ? 1 : -1;
+    b->prof->d_t2 = 1/(sign * b->acc) * (-b->prof->v + sqrt(2 * sign * b->acc * (b->length - b->prof->s2)+ pow(b->prof->v, 2)));
+    v_check = b->prof->v + sign * b->acc * (b->prof->d_t2);
+
+    if (fabs(v_check - b->prof->vf) > TOL){
+      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned\
+      the error is: %f\n", b->n, (b->prof->vf - v_check));
+      //exit(EXIT_FAILURE);
+    }
+  }
+
+  return 0;
 }
 
 // Calculate the arc coordinates
