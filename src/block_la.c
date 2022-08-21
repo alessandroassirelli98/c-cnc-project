@@ -29,7 +29,7 @@ typedef struct {
   data_t vi_fwd, vf_fwd;     //Only for debug prposes
   data_t s1, s2, s_inter;  //curvilinear absissa of feed transition
   int mask;              // bitmask for feed profile
-  data_t t1, t_inter, t2, tf;       // trapezoid times
+  data_t d_t1, d_tm, d_t2;       // trapezoid times
   data_t dt;               // total time
 } block_la_profile_t;
 
@@ -342,22 +342,22 @@ int block_la_backward_pass(block_la_t *b){
   b->prof->mask &= temp_mask;
 
   // In case of short block
-  // This means the velocity is under the desired one
+  // This means the velocity is always under the desired one
   if (b->prof->mask == 0b10110 && b->prof->s1 > b->prof->s2){ 
     b->prof->s_inter = b->length/2 + (pow(b->prof->vf, 2) - pow(b->prof->vi, 2))/(4*b->acc);
     
     // Cleaning of the mask: remove useless flag of acceleration or deceleration 
-    if (abs (b->prof->s_inter - b->length) < 1e-9) b->prof->mask = 0b10100; // If the intersection is in L, then we have only acceleration
-    else if (abs (b->prof->s_inter - 0) < 1e-9) b->prof->mask = 0b10010; // If it's in zero, then only deceleration
+    if (fabs (b->prof->s_inter - b->length) < TOL) b->prof->mask = 0b10100; // If the intersection is in L, then we have only acceleration
+    else if (fabs (b->prof->s_inter - 0) < TOL) b->prof->mask = 0b10010; // If it's in zero, then only deceleration
 
   }
-  // This means the velocity is above the desired one
+  // This means the velocity is always above the desired one
   else if (b->prof->mask == 0b11001 && b->prof->s1 > b->prof->s2){ //DA block
     b->prof->s_inter = (pow(b->prof->vi, 2) - pow(b->prof->vf, 2))/(4*b->acc) + b->length/2;
 
     // Cleaning of the mask: remove useless flag of acceleration or deceleration 
-    if (abs (b->prof->s_inter - b->length) < 1e-9) b->prof->mask = 0b10001; // If the intersection is in L, then we have only deceleration
-    else if (abs (b->prof->s_inter - 0) < 1e-9) b->prof->mask = 0b11000; // If it's in zero, then only acceleration
+    if (fabs (b->prof->s_inter - b->length) < TOL) b->prof->mask = 0b10001; // If the intersection is in L, then we have only deceleration
+    else if (fabs (b->prof->s_inter - 0) < TOL) b->prof->mask = 0b11000; // If it's in zero, then only acceleration
   }
 
   else if (b->prof->s1 < b->length && b->prof->s2 > 0) b->prof->mask &= 0b01111; //otherwise it's not a short block
@@ -375,9 +375,11 @@ int block_la_backward_pass(block_la_t *b){
   return 0;
 }
 
+
+// Compute timings and velocities without taking into account the timesteps
 int block_la_compute_timings(block_la_t *b){
   assert(b);
-  data_t sign, v_check;
+  data_t sign, v_check, dq;
   // Short block: no maintenance and the first bit of the mask is true
   if(b->type == RAPID) return 0;
   if (b->prof->mask & 0b10000){
@@ -385,43 +387,50 @@ int block_la_compute_timings(block_la_t *b){
     sign = ((b->prof->mask & 0b10101) == 0b10100) ? 1 : -1;
     //plus_minus = (b->prof->s_inter == 0) ? 1 : 1;
 
-    b->prof->t_inter = 1/(sign * b->acc) * (-b->prof->vi + sqrt(2 * sign * b->acc * b->prof->s_inter + pow(b->prof->vi, 2)));
-    b->prof->v_inter = b->prof->vi + sign * b->acc * b->prof->t_inter;
+    b->prof->d_t1 = 1/(sign * b->acc) * (-b->prof->vi + sqrt(2 * sign * b->acc * b->prof->s_inter + pow(b->prof->vi, 2)));
+    b->prof->v_inter = b->prof->vi + sign * b->acc * b->prof->d_t1;
 
     // If the second acceleration bit is set, it means we have to accelerate, otherwise decelerate
     sign = ((b->prof->mask & 0b11010) == 0b11000) ? 1 : -1;
-    b->prof->tf = 1/(sign * b->acc) * (-b->prof->v_inter + sqrt(2 * sign * b->acc * (b->length - b->prof->s_inter) + pow(b->prof->v_inter, 2)));
-    v_check = b->prof->v_inter + sign * b->acc * b->prof->tf;
+    b->prof->d_t2 = 1/(sign * b->acc) * (-b->prof->v_inter + sqrt(2 * sign * b->acc * (b->length - b->prof->s_inter) + pow(b->prof->v_inter, 2)));
+    v_check = b->prof->v_inter + sign * b->acc * (b->prof->d_t2);
 
-    if (abs(v_check - b->prof->vf) > 1e-9){
-      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned \n \
-      the error is: %f", b->n, (b->prof->vf - v_check));
+    if (fabs(v_check - b->prof->vf) > TOL){
+      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned\
+      the error is: %f \n", b->n, (b->prof->vf - v_check));
       //exit(EXIT_FAILURE);
     }
+
+
+
   }
 
   // long block
   else{
+    data_t v, a, d;
     sign = ((b->prof->mask & 0b00101) == 0b00100) ? 1 : -1;
-    b->prof->t1 = 1/(sign * b->acc) * (-b->prof->vi + sqrt(2 * sign * b->acc * b->prof->s1 + pow(b->prof->vi, 2)));
-    b->prof->v1 = b->prof->vi + sign * b->acc * b->prof->t1;
+    b->prof->d_t1 = 1/(sign * b->acc) * (-b->prof->vi + sqrt(2 * sign * b->acc * b->prof->s1 + pow(b->prof->vi, 2)));
+    b->prof->v1 = b->prof->vi + sign * b->acc * b->prof->d_t1;
 
-    b->prof->t2 = (b->prof->s2 - b->prof->s1)/b->prof->v;
+    b->prof->d_tm = (b->prof->s2 - b->prof->s1)/b->prof->v;
     b->prof->v2 = b->prof->v;
 
     sign = ((b->prof->mask & 0b01010) == 0b01000) ? 1 : -1;
-    b->prof->tf = 1/(sign * b->acc) * (-b->prof->v + sqrt(2 * sign * b->acc * (b->length - b->prof->s2)+ pow(b->prof->v, 2)));
-    v_check = b->prof->v + sign * b->acc * b->prof->tf;
-    if (abs(v_check - b->prof->vf) > 1e-9){
-      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned \n \
-      the error is: %f", b->n, (b->prof->vf - v_check));
+    b->prof->d_t2 = 1/(sign * b->acc) * (-b->prof->v + sqrt(2 * sign * b->acc * (b->length - b->prof->s2)+ pow(b->prof->v, 2)));
+    v_check = b->prof->v + sign * b->acc * (b->prof->d_t2);
+    if (fabs(v_check - b->prof->vf) > TOL){
+      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned\
+      the error is: %f\n", b->n, (b->prof->vf - v_check));
       //exit(EXIT_FAILURE);
     }
+
+    v = (2*b->length - b->prof->vi * b->prof->d_t1 - b->prof->vf * b->prof->d_t2)/(b->prof->d_t1 + b->prof->d_t2 + 2);
 
   }
 
   return 0;
 }
+
 // Evaluate the value of lambda at a certaint time
 data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
 

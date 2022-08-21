@@ -129,7 +129,7 @@ int program_la_parse(program_la_t *p, machine_t *cfg) {
   return EXIT_SUCCESS;
 }
 
-int program_la_look_ahead(program_la_t *p){
+int program_la_look_ahead(program_la_t *p, machine_t *m){
   block_la_t *b = p->first;
   eprintf("Computing velocities ...\n");
   while (b){
@@ -153,12 +153,18 @@ int program_la_look_ahead(program_la_t *p){
   }
 
   eprintf("Computing timings ...\n");
+  data_t k, t, t_star = 0;
   b = p->first;
   while (b){
     block_la_compute_timings(b);
-     block_la_print_velocity_profile(b);
+    t += block_la_dt(b);
+    block_la_print_velocity_profile(b);
     b = block_la_next(b);
   }
+  eprintf("Total time: %f\n", t);
+
+  
+
 
   return 0;
 }

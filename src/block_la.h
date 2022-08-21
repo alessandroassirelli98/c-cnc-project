@@ -30,6 +30,8 @@
 // Opaque structure representing a G-code block
 typedef struct block_la block_la_t;
 
+#define TOL 1e-6
+
 // Block types
 typedef enum {
   RAPID = 0,
@@ -72,6 +74,7 @@ int block_la_calculate_velocities(block_la_t *b);
 int block_la_forward_pass(block_la_t *b);
 int block_la_backward_pass(block_la_t *b);
 int block_la_compute_timings(block_la_t *b);
+
 
 // Evaluate the value of lambda at a certaint time
 // also return speed in the parameter v

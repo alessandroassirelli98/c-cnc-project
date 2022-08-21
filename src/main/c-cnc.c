@@ -49,7 +49,7 @@ int main(int argc, char const *argv[]) {
     exit(EXIT_FAILURE);
   }
   program_la_print(p, stderr);
-  program_la_look_ahead(p);
+  program_la_look_ahead(p, machine);
 
 
   machine_free(machine);

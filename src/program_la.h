@@ -54,7 +54,7 @@ void program_la_print(const program_la_t *program_la, FILE *output);
 // return either EXIT_SUCCESS or EXIT_FAILURE
 int program_la_parse(program_la_t *program_la, machine_t *cfg);
 
-int program_la_look_ahead(program_la_t *p);
+int program_la_look_ahead(program_la_t *p, machine_t *m);
 
 // linked-list navigation functions
 block_la_t *program_la_next(program_la_t *program_la);
