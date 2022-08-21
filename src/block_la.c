@@ -312,6 +312,8 @@ int block_la_backward_pass(block_la_t *b){
   s1 = calloc(1, sizeof(data_t));
   s2 = calloc(1, sizeof(data_t));
 
+  // Check if the final velocity can be reached, 
+  // If not, then lower it
   v_max = sqrt(2*b->acc * b->length + pow((b->prof->vf),2));
   if(b->prof->vi > v_max){
     b->prof->vi = v_max;
@@ -321,12 +323,14 @@ int block_la_backward_pass(block_la_t *b){
 
   calc_s1_s2(b, s1, s2, -1);
 
+  // If it founds s1 positive, then we start with a deceleration
   if (*s1 >= 0){
     temp_mask &= 0b11011;
     b->prof->s1 = *s1;
   }
   else temp_mask &= 0b11110;
 
+  // If it founds s2 < L, then we end with a deceleration
   if (*s2 <= b->length){
     temp_mask &= 0b10111; 
     b->prof->s2 = *s2;
@@ -341,6 +345,8 @@ int block_la_backward_pass(block_la_t *b){
   // This means the velocity is under the desired one
   if (b->prof->mask == 0b10110 && b->prof->s1 > b->prof->s2){ 
     b->prof->s_inter = b->length/2 + (pow(b->prof->vf, 2) - pow(b->prof->vi, 2))/(4*b->acc);
+    
+    // Cleaning of the mask: remove useless flag of acceleration or deceleration 
     if (abs (b->prof->s_inter - b->length) < 1e-9) b->prof->mask = 0b10100; // If the intersection is in L, then we have only acceleration
     else if (abs (b->prof->s_inter - 0) < 1e-9) b->prof->mask = 0b10010; // If it's in zero, then only deceleration
 
@@ -348,12 +354,22 @@ int block_la_backward_pass(block_la_t *b){
   // This means the velocity is above the desired one
   else if (b->prof->mask == 0b11001 && b->prof->s1 > b->prof->s2){ //DA block
     b->prof->s_inter = (pow(b->prof->vi, 2) - pow(b->prof->vf, 2))/(4*b->acc) + b->length/2;
+
+    // Cleaning of the mask: remove useless flag of acceleration or deceleration 
     if (abs (b->prof->s_inter - b->length) < 1e-9) b->prof->mask = 0b10001; // If the intersection is in L, then we have only deceleration
     else if (abs (b->prof->s_inter - 0) < 1e-9) b->prof->mask = 0b11000; // If it's in zero, then only acceleration
   }
 
   else if (b->prof->s1 < b->length && b->prof->s2 > 0) b->prof->mask &= 0b01111; //otherwise it's not a short block
-  
+
+  // Last check: if the target velocity vi has been changed because it could not be reached,
+  // the target vf of the previous block is decreased wrt to the forward pass
+  // then the acceleration starting point we computed in the forward pass must be changed in order to
+  // comply with the new point.
+  calc_s1_s2(b, s1, s2, 1);
+  b->prof->s2 = (!(b->prof->mask & 0b00010)) ? *s2 : b->prof->s2; 
+  b->prof->s1 = (!(b->prof->mask & 0b00001)) ? *s1 : b->prof->s1;
+
   free(s1);
   free(s2);
   return 0;
