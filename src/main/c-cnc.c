@@ -61,7 +61,7 @@ int main(int argc, char const *argv[]) {
     // careful: we check t <= block_dt(b) + tq/2.0 for double values are
     // never exact, and we may have that adding many tq carries over a small
     // error that accumuates and may result in n*tb being greater than Dt
-    // (if so, we would miss the last step)
+    // (if so, we would miss the last step
     for (t = 0; t <= block_la_dt(b) + tq/2.0; t += tq, tt += tq) {
       lambda = block_la_lambda(b, t, &f);
       if (block_la_n(b) == 30){

@@ -389,6 +389,11 @@ data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
   data_t a2 = b->prof->a2;
   data_t v_b = b->prof->v;
   data_t vi = b->prof->vi;
+  data_t k = b->prof->k;
+
+  vi /= k;
+  a1 /= k;
+  a2 /= k;
 
   if (t < 0) {
     r = 0.0;
@@ -399,27 +404,27 @@ data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
     *v = vi +a1 * t;
   }
   else if (t < (d_t1 + d_tm)) { // maintenance
-    s1 = vi*d_t1 + a1/2 * pow(d_t1,2);
+    s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1, 2);
     v1 = vi + a1 * d_t1;
 
-    r = s1 + v_b*(t - d_t1);
+    r = s1 + v1*(t - d_t1);
     *v = v1;
   }
   else if (t < (d_t1 + d_tm + d_t2)) { // deceleration
     data_t t_2 = d_t1 + d_tm;
-    s1 = vi*d_t1 + a1/2 * pow(d_t1,2);
+
+    s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1,2);
     v1 = vi + a1 * d_t1;
     s2 = s1 + v1 * d_tm;
 
-    r =  s2 + v1 * (t - t_2) + a2/2 * pow(t - t_2, 2);
+    r =  s2 + v1 * (t - t_2) + a2 / 2 * pow(t - t_2, 2);
     *v = v1 + a2 * (t - t_2);
   }
   else {
     r = b->prof->l;
-    *v = 0;
+    *v = b->prof->vf;
   }
   r /= b->prof->l;
-  // r /= b->prof->k;
   *v *= 60; // convert to mm/min
   return r;
 }
@@ -439,6 +444,9 @@ int block_la_compute_raw_timings(block_la_t *b){
   data_t s1 = b->prof->s1;
   data_t s2 = b->prof->s2;
   data_t l = b->length;
+  data_t d_t1 = b->prof->d_t1;
+  data_t d_t2 = b->prof->d_t2;
+  data_t d_tm = b->prof->d_tm;
 
   a1 = a2 = b->acc;
   if (b->prof->mask & 0b10000){
@@ -446,25 +454,25 @@ int block_la_compute_raw_timings(block_la_t *b){
     sign = ((b->prof->mask & 0b10101) == 0b10100) ? 1 : -1;
     a1 *= sign;
 
-    b->prof->d_t1 = 1/a1 * (-vi + sqrt(2 * a1 * s_int + pow(vi, 2)));
-    b->prof->v_inter = vi + a1 * b->prof->d_t1;
+    d_t1 = 1/a1 * (-vi + sqrt(2 * a1 * s_int + pow(vi, 2)));
+    v= vi + a1 * d_t1;
 
     // If the second acceleration bit is set, it means we have to accelerate, otherwise decelerate
     sign = ((b->prof->mask & 0b11010) == 0b11000) ? 1 : -1;
     a2 *= sign;
-    b->prof->d_t2 = 1/a2 * (-b->prof->v_inter + sqrt(2 * a2 * (l - s_int) + pow(b->prof->v_inter, 2)));
-    tf = b->prof->d_t1 + b->prof->d_t2;
+    d_t2 = 1/a2 * (-v + sqrt(2 * a2 * (l - s_int) + pow(v, 2)));
+    tf = d_t1 + d_t2;
 
-    v_check = b->prof->v_inter +  a2 * (b->prof->d_t2);
-    s_check =  vi * b->prof->d_t1 + a1/2 * pow(b->prof->d_t1,2) + b->prof->v_inter * b->prof->d_t2 + a2/2 * pow(b->prof->d_t2, 2);
+    v_check = v +  a2 * d_t2;
+    s_check =  vi * d_t1 + a1/2 * pow(d_t1, 2) + v * d_t2 + a2/2 * pow(d_t2, 2);
 
-    if (fabs(v_check - b->prof->vf) > TOL){
+    if (fabs(v_check - vf) > TOL){
       fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned\
-      the error is: %f \n", b->n, (b->prof->vf - v_check));
+      the error is: %f \n", b->n, (vf - v_check));
       //exit(EXIT_FAILURE);
     }
 
-    if (fabs(s_check - b->length) > TOL){
+    if (fabs(s_check - l) > TOL){
       fprintf(stderr, "Error on block %03lu s_final computed is different from the one assigned\
       the error is: %f \n", b->n, (b->length - s_check));
       //exit(EXIT_FAILURE);
@@ -475,28 +483,38 @@ int block_la_compute_raw_timings(block_la_t *b){
   else{
     sign = ((b->prof->mask & 0b00101) == 0b00100) ? 1 : -1;
     a1 *= sign;
-    b->prof->d_t1 = 1/a1 * (-vi + sqrt(2 * a1 * s1 + pow(vi, 2)));
-    b->prof->v1 = vi +  a1 * b->prof->d_t1;
+    d_t1 = 1/a1 * (-vi + sqrt(2 * a1 * s1 + pow(vi, 2)));
+    v = vi +  a1 * d_t1;
 
-    b->prof->d_tm = (s2 - s1)/v;
-    b->prof->v2 = v;
-
+    d_tm = (s2 - s1)/v;
+    
     sign = ((b->prof->mask & 0b01010) == 0b01000) ? 1 : -1;
     a2 *= sign;
-    b->prof->d_t2 = 1/a2 * (-v + sqrt(2 * a2 * (l - s2)+ pow(v, 2)));
-    tf = b->prof->d_t1 + b->prof->d_tm + b->prof->d_t2;
+    d_t2 = 1/a2 * (-v + sqrt(2 * a2 * (l - s2)+ pow(v, 2)));
+    tf = d_t1 + d_tm + d_t2;
 
-    v_check = v + a2 * (b->prof->d_t2);
+    v_check = v + a2 * d_t2;
+    s_check = vi * d_t1 + a1/2 * pow(d_t1, 2) + v * (d_tm + d_t2) + a2/2 * pow(d_t2, 2);
 
-    if (fabs(v_check - b->prof->vf) > TOL){
+    if (fabs(v_check - vf) > TOL){
       fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned\
-      the error is: %f\n", b->n, (b->prof->vf - v_check));
+      the error is: %f\n", b->n, (vf - v_check));
+      //exit(EXIT_FAILURE);
+    }
+
+    if (fabs(s_check - l) > TOL){
+      fprintf(stderr, "Error on block %03lu s_final computed is different from the one assigned\
+      the error is: %f \n", b->n, (b->length - s_check));
       //exit(EXIT_FAILURE);
     }
   }
 
   b->prof->a1 = a1;
   b->prof->a2 = a2;
+  b->prof->d_t1 = d_t1;
+  b->prof->d_t2 = d_t2;
+  b->prof->d_tm = d_tm;
+  b->prof->v = v;
   
   b->prof->dt = ((size_t)(tf/machine_tq(b->machine)) + 1) * machine_tq(b->machine);
   b->prof->k = b->prof->dt / tf;

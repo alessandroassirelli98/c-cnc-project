@@ -158,7 +158,7 @@ int program_la_look_ahead(program_la_t *p, machine_t *m){
   while (b){
     block_la_compute_raw_timings(b);
     t += block_la_dt(b);
-    block_la_print_velocity_profile(b);
+    //block_la_print_velocity_profile(b);
     b = block_la_next(b);
   }
   eprintf("Total time: %f\n", t);
