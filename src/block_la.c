@@ -419,7 +419,9 @@ data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
 
     r =  s2 + v1 * (t - t_2) + a2 / 2 * pow(t - t_2, 2);
     *v = v1 + a2 * (t - t_2);
+    printf("r: %f / l: %f\n", r, b->length);
   }
+
   else {
     r = b->prof->l;
     *v = b->prof->vf;
