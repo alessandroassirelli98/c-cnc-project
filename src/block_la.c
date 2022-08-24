@@ -374,10 +374,11 @@ int block_la_backward_pass(block_la_t *b){
 
   free(s1);
   free(s2);
+
   return 0;
 }
 
-int block_la_rescale(block_la_t *b, data_t k){
+int block_la_quantize_profile(block_la_t *b, data_t k){
 
   b->prof->k = k;
   b->prof->d_t1 *= k;
@@ -399,7 +400,7 @@ int block_la_rescale(block_la_t *b, data_t k){
 // Evaluate the value of lambda at a certaint time
 data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
   assert(b);
-  data_t s1, s2, v1;
+  data_t s1, s2, v1, scheck;
   data_t r;
   data_t d_t1 = b->prof->d_t1;
   data_t d_t2 = b->prof->d_t2;
@@ -435,6 +436,17 @@ data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
   }
 
   else {
+    // Sanity check
+    s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1, 2);
+    v1 = vi + a1 * d_t1;
+    s2 = s1 + v1 * d_tm;
+    scheck = s2 + v1 * d_t2 + a2 / 2 * pow(d_t2, 2);
+
+    if (fabs(b->length - scheck) > TOL){
+      fprintf(stderr, "ERROR IN INTERPOLATION of block %03lu error is : %f\n", b->n, b->length - scheck);
+      return 1;
+    }
+
     r = b->prof->l;
     *v = b->prof->vf;
   }
@@ -445,15 +457,14 @@ data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
 
 
 // Compute timings and velocities without taking into account the timesteps
-int block_la_compute_raw_timings(block_la_t *b){
+int block_la_compute_raw_profile(block_la_t *b){
   assert(b);
   // Short block: no maintenance and the first bit of the mask is true
-  if(b->type == RAPID | b->type == NO_MOTION) return 0;
+  if(b->type == RAPID || b->type == NO_MOTION) return 0;
 
-  data_t sign, v_check, s_check, a1, a2, tf;
+  data_t sign, s_check, v, a1, a2;
+
   data_t vi = b->prof->vi;
-  data_t v = b->prof->v;
-  data_t vf = b->prof->vf;
   data_t s_int = b->prof->s_inter;
   data_t s1 = b->prof->s1;
   data_t s2 = b->prof->s2;
@@ -475,26 +486,10 @@ int block_la_compute_raw_timings(block_la_t *b){
     sign = ((b->prof->mask & 0b11010) == 0b11000) ? 1 : -1;
     a2 *= sign;
     d_t2 = 1/a2 * (-v + sqrt(2 * a2 * (l - s_int) + pow(v, 2)));
-    tf = d_t1 + d_t2;
-
-    v_check = v +  a2 * d_t2;
-    s_check =  vi * d_t1 + a1/2 * pow(d_t1, 2) + v * d_t2 + a2/2 * pow(d_t2, 2);
-
-    if (fabs(v_check - vf) > TOL){
-      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned\
-      the error is: %f \n", b->n, (vf - v_check));
-      //exit(EXIT_FAILURE);
-    }
-
-    if (fabs(s_check - l) > TOL){
-      fprintf(stderr, "Error on block %03lu s_final computed is different from the one assigned\
-      the error is: %f \n", b->n, (b->length - s_check));
-      //exit(EXIT_FAILURE);
-    }
   }
 
   // long block
-  else{
+  else {
     sign = ((b->prof->mask & 0b00101) == 0b00100) ? 1 : -1;
     a1 *= sign;
     d_t1 = 1/a1 * (-vi + sqrt(2 * a1 * s1 + pow(vi, 2)));
@@ -505,32 +500,24 @@ int block_la_compute_raw_timings(block_la_t *b){
     sign = ((b->prof->mask & 0b01010) == 0b01000) ? 1 : -1;
     a2 *= sign;
     d_t2 = 1/a2 * (-v + sqrt(2 * a2 * (l - s2)+ pow(v, 2)));
-    tf = d_t1 + d_tm + d_t2;
-
-    v_check = v + a2 * d_t2;
-    s_check = vi * d_t1 + a1/2 * pow(d_t1, 2) + v * (d_tm + d_t2) + a2/2 * pow(d_t2, 2);
-
-    if (fabs(v_check - vf) > TOL){
-      fprintf(stderr, "Error on block %03lu v_final computed is different from the one assigned\
-      the error is: %f\n", b->n, (vf - v_check));
-      //exit(EXIT_FAILURE);
-    }
-
-    if (fabs(s_check - l) > TOL){
-      fprintf(stderr, "Error on block %03lu s_final computed is different from the one assigned\
-      the error is: %f \n", b->n, (b->length - s_check));
-      //exit(EXIT_FAILURE);
-    }
   }
 
-    b->prof->dt = ((size_t)(tf/machine_tq(b->machine)) + 1) * machine_tq(b->machine);
-  b->prof->k = 1;//b->prof->dt / tf;
+  s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1, 2);
+  v = vi + a1 * d_t1;
+  s2 = s1 + v * d_tm;
+  s_check = s2 + v * d_t2 + a2 / 2 * pow(d_t2, 2);
+
+  if (fabs(b->length - s_check) > TOL){
+    fprintf(stderr, "Mistmach of interpolated and nominal length %03lu Error is : %f\n", b->n, b->length - s_check);
+    return 1;
+  }
 
   b->prof->a1 = a1;
   b->prof->a2 = a2;
   b->prof->d_t1 = d_t1;
   b->prof->d_t2 = d_t2;
   b->prof->d_tm = d_tm;
+  b->prof->dt = d_t1 + d_t2 + d_tm;
   b->prof->v = v;
 
 

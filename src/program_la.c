@@ -131,6 +131,8 @@ int program_la_parse(program_la_t *p, machine_t *cfg) {
 
 int program_la_look_ahead(program_la_t *p, machine_t *m){
   block_la_t *b = p->first;
+  block_la_t *bp;
+
   eprintf("Computing velocities ...\n");
   while (b){
     block_la_calculate_velocities(b);
@@ -153,11 +155,16 @@ int program_la_look_ahead(program_la_t *p, machine_t *m){
   }
 
   eprintf("Computing timings ...\n");
-  data_t k, t, t_star = 0;
-  block_la_t *bp;
+  data_t k;
+  data_t t = 0;
+  data_t tt = 0;
+  data_t t_star = 0;
+  
   b = p->first;
   while (b){
-    block_la_compute_raw_timings(b);
+    if (block_la_compute_raw_profile(b)){
+      eprintf("ERROR: in computing timings \n");
+    }
     t += block_la_dt(b);
 
     // If next block is a zero velocity one
@@ -171,16 +178,19 @@ int program_la_look_ahead(program_la_t *p, machine_t *m){
 
       // Loop back to the previous zero velocity block
       bp = b;
-      while(bp && (block_la_type(bp) != RAPID)){
-        block_la_rescale(bp, k);
+      while(bp && block_la_type(bp) != RAPID && block_la_type(bp) != NO_MOTION){
+        block_la_quantize_profile(bp, k);
         bp = block_la_prev(bp);
       } 
     }
 
+    tt += t_star;
     b = block_la_next(b);
   }
-  eprintf("Total time: %f\n", t);
+  eprintf("Total time: %f\n", tt);
   
+  free(b);
+  free(bp);
   return 0;
 }
 

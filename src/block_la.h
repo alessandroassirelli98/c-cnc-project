@@ -73,8 +73,8 @@ int block_la_calculate_velocities(block_la_t *b);
 
 int block_la_forward_pass(block_la_t *b);
 int block_la_backward_pass(block_la_t *b);
-int block_la_rescale(block_la_t *b, data_t k);
-int block_la_compute_raw_timings(block_la_t *b);
+int block_la_quantize_profile(block_la_t *b, data_t k);
+int block_la_compute_raw_profile(block_la_t *b);
 
 
 // Evaluate the value of lambda at a certaint time
