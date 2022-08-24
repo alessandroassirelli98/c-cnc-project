@@ -63,6 +63,7 @@ static point_t *point_zero(block_la_t *b);
 static int block_la_arc(block_la_t *b);
 static float calc_final_velocity(block_la_t *b);
 static void calc_s1_s2(block_la_t *b, data_t *s1, data_t *s2, int sign);
+static data_t wrap_angle(data_t alpha);
 static data_t quantize(data_t t, data_t tq, data_t *dq);
 
 //   _____                 _   _
@@ -531,8 +532,7 @@ int block_la_compute_raw_timings(block_la_t *b){
   b->prof->d_t2 = d_t2;
   b->prof->d_tm = d_tm;
   b->prof->v = v;
-  
-  
+
 
   return 0;
 }
@@ -635,10 +635,16 @@ static int block_la_arc(block_la_t *b) {
   b->r = fabs(b->r);
 
   // Calculate the tangent to the arc in the initial point
-  b->alpha_s = M_PI/2 + atan2(y0 - yc, x0 - xc);
+  data_t sign;
+  sign = (b->type == ARC_CCW) ? 1 : -1;
+  b->alpha_s = sign * M_PI/2 + atan2(y0 - yc, x0 - xc);
+  b->alpha_s = wrap_angle(b->alpha_s);
 
   // Calculate the tangent to the arc in the final point
-  b->alpha_e = M_PI/2 + atan2(yf - yc, xf - xc);
+  b->alpha_e = sign * M_PI/2 + atan2(yf - yc, xf - xc);
+  b->alpha_e = wrap_angle(b->alpha_e);
+
+
   return 0;
 }
 
@@ -651,9 +657,11 @@ static point_t *point_zero(block_la_t *b) {
 
 // Compute the terminal velocity of the current block b
 static float calc_final_velocity(block_la_t *b){
-    data_t alpha;
+    data_t alpha, v;
     alpha = b->next->alpha_s - b->alpha_e;
-    return fabs((b->prof->v + b->next->prof->v) / 2 * cos(alpha));
+    v = fabs((b->prof->v + b->next->prof->v) / 2 * cos(alpha));
+    v =  (alpha <= M_PI/4 && alpha >= -M_PI/4) ? v : 0;
+    return v;
 }
 
 // Compute s1 and s2 of the block, sign should be 1 for forward, -1 for backward
@@ -662,6 +670,12 @@ static void calc_s1_s2(block_la_t *b, data_t *s1, data_t *s2, int sign){
 
   *s1 = (pow(b->prof->v, 2) - pow(b->prof->vi, 2)) / (2 * sign *b->acc);
   *s2 = b->length + (pow(b->prof->v, 2) - pow(b->prof->vf, 2)) / (2 * sign * b->acc);
+}
+
+static data_t wrap_angle(data_t alpha){
+  alpha += (alpha > M_PI) ? - 2 * M_PI : 0;
+  alpha += (alpha < -M_PI) ? + 2 * M_PI : 0;
+  return alpha;
 }
 
 // Parse a single G-code word (cmd+arg)
