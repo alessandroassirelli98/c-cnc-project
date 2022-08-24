@@ -62,16 +62,13 @@ int main(int argc, char const *argv[]) {
     // never exact, and we may have that adding many tq carries over a small
     // error that accumuates and may result in n*tb being greater than Dt
     // (if so, we would miss the last step
-    for (t = 0; t <= block_la_dt(b) + tq/2.0; t += tq, tt += tq) {
+    for (t = 0; t <= block_la_dt(b) + tq; t += tq, tt += tq) {
       lambda = block_la_lambda(b, t, &f);
-      if (block_la_n(b) == 30){
-        printf("d");
-      }
       sp = block_la_interpolate(b, lambda);
       if (!sp) continue;
-      printf("%lu,%f,%f,%f,%f,%f,%f,%f,%f\n", block_la_n(b), t, tt,
-        lambda, lambda * block_la_length(b), f,
-        point_x(sp), point_y(sp), point_z(sp));
+      // printf("%lu,%f,%f,%f,%f,%f,%f,%f,%f\n", block_la_n(b), t, tt,
+      //   lambda, lambda * block_la_length(b), f,
+      //   point_x(sp), point_y(sp), point_z(sp));
       wait_next(5e6);
     }
   }

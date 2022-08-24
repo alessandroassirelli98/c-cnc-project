@@ -25,7 +25,7 @@
 // Trapezoidal velocity profile
 typedef struct {
   data_t l;             // nominal feedrate and length
-  data_t vi, v1, v, v_inter, v2, vf;   // initial and final feedrate
+  data_t vi, v, vf;   // initial and final feedrate
   data_t vi_fwd, vf_fwd;     //Only for debug prposes
   data_t s1, s2, s_inter;  //curvilinear absissa of feed transition
   int mask;              // bitmask for feed profile
@@ -106,7 +106,6 @@ block_la_t *block_la_new(const char *line, block_la_t *prev, machine_t *cfg) {
     return NULL;
   }
 
-  //b->prof->v1 = b->prof->v2 = b->prof->vi = b->prof->vf = 0;
   b->prof->mask = 0b11111;
 
   b->machine = cfg;
@@ -156,8 +155,8 @@ void block_la_print_velocity_target(block_la_t *b, FILE *out){
 
 void block_la_print_velocity_profile(block_la_t *b){
     assert(b);
-    printf("%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->vi, b->prof->v,\
-                                                       b->prof->vf, b->prof->vi_fwd, b->prof->vf_fwd, b->prof->v1, b->prof->v_inter, b->prof->v2,\
+    printf("%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->vi, b->prof->v,\
+                                                       b->prof->vf, b->prof->vi_fwd, b->prof->vf_fwd,\
                                                        b->prof->s_inter, b->prof->s1, b->prof->s2, b->prof->mask,b->acc);
 }
 
@@ -188,7 +187,6 @@ int block_la_parse(block_la_t *b) {
   point_modal(p0, b->target);
   point_delta(p0, b->target, b->delta);
   b->length = point_dist(p0, b->target);
-  b->prof->l = b->length;
   
   // deal with motion block_las
   switch (b->type) {
@@ -296,6 +294,8 @@ int block_la_forward_pass(block_la_t *b){
 
   b->prof->vi_fwd = b->prof->vi;
   b->prof->vf_fwd = b->prof->vf;
+
+  b->prof->l = b->length;
 
 
   free(s1);
@@ -452,6 +452,9 @@ data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
   }
   r /= b->prof->l;
   *v *= 60; // convert to mm/min
+  if(r > 1){
+      fprintf(stderr, "ERROR: lambda > 1 on block %03lu \n", b->n);
+    }
   return r;
 }
 
@@ -526,6 +529,27 @@ int block_la_compute_raw_profile(block_la_t *b){
 
 // CAREFUL: this function allocates a point
 point_t *block_la_interpolate(block_la_t *b, data_t lambda) {
+  assert(b);
+  point_t *result = machine_setpoint(b->machine);
+  point_t *p0 = point_zero(b);
+
+  if (b->type == LINE) {
+    point_set_x(result, point_x(p0) + point_x(b->delta) * lambda);
+    point_set_y(result, point_y(p0) + point_y(b->delta) * lambda);
+  }
+  else if (b->type == ARC_CW || b->type == ARC_CCW) {
+    point_set_x(result, point_x(b->center) + 
+      b->r * cos(b->theta0 + b->dtheta * lambda));
+    point_set_y(result, point_y(b->center) + 
+      b->r * sin(b->theta0 + b->dtheta * lambda));
+  }
+  else {
+    fprintf(stderr, "Unexpected block type!\n");
+    return NULL;
+  }
+  point_set_z(result, point_z(p0) + point_z(b->delta) * lambda);
+
+  return result;
 }
 
 
@@ -631,7 +655,7 @@ static int block_la_arc(block_la_t *b) {
   b->alpha_e = sign * M_PI/2 + atan2(yf - yc, xf - xc);
   b->alpha_e = wrap_angle(b->alpha_e);
 
-
+  b->length = hypot(zf - z0, b->dtheta * b->r);
   return 0;
 }
 

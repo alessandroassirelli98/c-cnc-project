@@ -165,6 +165,7 @@ int program_la_look_ahead(program_la_t *p, machine_t *m){
     if (block_la_compute_raw_profile(b)){
       eprintf("ERROR: in computing timings \n");
     }
+    block_la_print_velocity_profile(b);
     t += block_la_dt(b);
 
     // If next block is a zero velocity one
