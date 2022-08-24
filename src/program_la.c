@@ -154,11 +154,29 @@ int program_la_look_ahead(program_la_t *p, machine_t *m){
 
   eprintf("Computing timings ...\n");
   data_t k, t, t_star = 0;
+  block_la_t *bp;
   b = p->first;
   while (b){
     block_la_compute_raw_timings(b);
     t += block_la_dt(b);
-    //block_la_print_velocity_profile(b);
+
+    // If next block is a zero velocity one
+    if (!block_la_next(b) || \
+        block_la_type(block_la_next(b)) == RAPID || \
+        block_la_type(block_la_next(b)) == NO_MOTION ){
+
+      t_star = (size_t)(t / machine_tq(m) + 1) * machine_tq(m);
+      k = t_star / t;
+      t = 0;
+
+      // Loop back to the previous zero velocity block
+      bp = b;
+      while(bp && (block_la_type(bp) != RAPID)){
+        block_la_rescale(bp, k);
+        bp = block_la_prev(bp);
+      } 
+    }
+
     b = block_la_next(b);
   }
   eprintf("Total time: %f\n", t);

@@ -241,7 +241,7 @@ int block_la_parse(block_la_t *b) {
 // For the lookahead approach first all the blocks must be parsed
 int block_la_calculate_velocities(block_la_t *b){
     assert(b); 
-    if ( b->type != RAPID ){
+    if ( b->type != RAPID && b->type != NO_MOTION){
         data_t vi, vf;
         if(!b->prev || b->prev->type == RAPID){ // if first block or after a rapid one
             vi = 0;
@@ -264,7 +264,7 @@ int block_la_calculate_velocities(block_la_t *b){
 
 int block_la_forward_pass(block_la_t *b){
   assert(b);
-  if(b->type == RAPID) return 0;
+  if(b->type == RAPID | b->type == NO_MOTION) return 0;
 
   data_t v_max;
   data_t *s1, *s2;
@@ -304,7 +304,7 @@ int block_la_forward_pass(block_la_t *b){
 
 int block_la_backward_pass(block_la_t *b){
   assert(b);
-  if(b->type == RAPID) return 0;
+  if(b->type == RAPID | b->type == NO_MOTION) return 0;
 
   data_t v_max;
   data_t *s1, *s2;
@@ -376,24 +376,36 @@ int block_la_backward_pass(block_la_t *b){
   return 0;
 }
 
+int block_la_rescale(block_la_t *b, data_t k){
+
+  b->prof->k = k;
+  b->prof->d_t1 *= k;
+  b->prof->d_t2 *= k;
+  b->prof->d_tm *= k;
+
+  b->prof->vi /= k;
+  b->prof->v /=k;
+  b->prof->vf /= k;
+
+  b->prof->a1 /= pow(k, 2);
+  b->prof->a2 /= pow(k, 2);
+
+  return 0;
+
+
+}
 // Evaluate the value of lambda at a certaint time
 // Evaluate the value of lambda at a certaint time
 data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
   assert(b);
-  data_t s1, s2, v1, v2;
+  data_t s1, s2, v1;
   data_t r;
   data_t d_t1 = b->prof->d_t1;
   data_t d_t2 = b->prof->d_t2;
   data_t d_tm = b->prof->d_tm;
   data_t a1 = b->prof->a1;
   data_t a2 = b->prof->a2;
-  data_t v_b = b->prof->v;
   data_t vi = b->prof->vi;
-  data_t k = b->prof->k;
-
-  vi /= k;
-  a1 /= k;
-  a2 /= k;
 
   if (t < 0) {
     r = 0.0;
@@ -419,7 +431,6 @@ data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
 
     r =  s2 + v1 * (t - t_2) + a2 / 2 * pow(t - t_2, 2);
     *v = v1 + a2 * (t - t_2);
-    printf("r: %f / l: %f\n", r, b->length);
   }
 
   else {
@@ -436,7 +447,7 @@ data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
 int block_la_compute_raw_timings(block_la_t *b){
   assert(b);
   // Short block: no maintenance and the first bit of the mask is true
-  if(b->type == RAPID) return 0;
+  if(b->type == RAPID | b->type == NO_MOTION) return 0;
 
   data_t sign, v_check, s_check, a1, a2, tf;
   data_t vi = b->prof->vi;
@@ -511,6 +522,9 @@ int block_la_compute_raw_timings(block_la_t *b){
     }
   }
 
+    b->prof->dt = ((size_t)(tf/machine_tq(b->machine)) + 1) * machine_tq(b->machine);
+  b->prof->k = 1;//b->prof->dt / tf;
+
   b->prof->a1 = a1;
   b->prof->a2 = a2;
   b->prof->d_t1 = d_t1;
@@ -518,8 +532,7 @@ int block_la_compute_raw_timings(block_la_t *b){
   b->prof->d_tm = d_tm;
   b->prof->v = v;
   
-  b->prof->dt = ((size_t)(tf/machine_tq(b->machine)) + 1) * machine_tq(b->machine);
-  b->prof->k = b->prof->dt / tf;
+  
 
   return 0;
 }
