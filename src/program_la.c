@@ -166,7 +166,7 @@ int program_la_look_ahead(program_la_t *p, machine_t *m){
       eprintf("ERROR: in computing timings \n");
       exit(EXIT_FAILURE);
     }
-    // block_la_print_velocity_profile(b);
+    block_la_print_velocity_profile(b);
     t += block_la_dt(b);
 
     // If next block is a zero velocity one
