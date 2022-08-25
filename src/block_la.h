@@ -41,15 +41,6 @@ typedef enum {
   NO_MOTION
 } block_la_type_t;
 
-typedef enum{
-  AMA = 0b1100,
-  DMD = 0b0011,
-  AMD = 0b0110,
-  AD,
-  DA,
-  DMA
-} block_la_profile_type_t;
-
 //   _____                 _   _                 
 //  |  ___|   _ _ __   ___| |_(_) ___  _ __  ___ 
 //  | |_ | | | | '_ \ / __| __| |/ _ \| '_ \/ __|
@@ -69,12 +60,25 @@ void block_la_print_velocity_profile(block_la_t *b);
 // Parsing the G-code string. Returns an integer for success/failure
 int block_la_parse(block_la_t *b);
 
-int block_la_calculate_velocities(block_la_t *b);
+// Compute the tangents to the line at the start and end points
+int block_la_compute_tangents(block_la_t *b);
 
+// For the lookahead approach first all the blocks must be parsed
+int block_la_compute_velocities(block_la_t *b);
+
+// Computes the forward pass i.e. only accelerations
 int block_la_forward_pass(block_la_t *b);
+
+// Computes the backward pass i.e. only decelerations
 int block_la_backward_pass(block_la_t *b);
-int block_la_quantize_profile(block_la_t *b, data_t k);
+
+// Compute timings and velocities without taking into account the timesteps
 int block_la_compute_raw_profile(block_la_t *b);
+
+// Rescale the block velocity and timings by a factor k
+// v* = v/k, t* = k t
+int block_la_quantize_profile(block_la_t *b, data_t k);
+
 
 
 // Evaluate the value of lambda at a certaint time

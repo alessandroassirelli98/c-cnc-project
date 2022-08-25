@@ -133,9 +133,16 @@ int program_la_look_ahead(program_la_t *p, machine_t *m){
   block_la_t *b = p->first;
   block_la_t *bp;
 
-  eprintf("Computing velocities ...\n");
+  eprintf("Computing tangents ...\n");
   while (b){
-    block_la_calculate_velocities(b);
+    block_la_compute_tangents(b);
+    b = block_la_next(b);
+  }
+
+  eprintf("Computing velocities ...\n");
+  b = p->first;
+  while (b){
+    block_la_compute_velocities(b);
     block_la_print_velocity_target(b, stderr);
     b = block_la_next(b);
   }
@@ -166,7 +173,7 @@ int program_la_look_ahead(program_la_t *p, machine_t *m){
       eprintf("ERROR: in computing timings \n");
       exit(EXIT_FAILURE);
     }
-    block_la_print_velocity_profile(b);
+    // block_la_print_velocity_profile(b);
     t += block_la_dt(b);
 
     // If next block is a zero velocity one

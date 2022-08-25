@@ -68,9 +68,7 @@ static point_t *point_zero(block_la_t *b);
 static int block_la_arc(block_la_t *b);
 static float calc_final_velocity(block_la_t *b);
 static void calc_s1_s2(block_la_t *b, data_t *s1, data_t *s2, int sign);
-static data_t wrap_angle(data_t alpha);
 static void compute_direction(point_t *v, point_t *p0, point_t *p1);
-static data_t quantize(data_t t, data_t tq, data_t *dq);
 
 //   _____                 _   _
 //  |  ___|   _ _ __   ___| |_(_) ___  _ __  ___
@@ -207,10 +205,6 @@ int block_la_parse(block_la_t *b) {
     b->act_feedrate = b->feedrate;
     b->prof->v = b->prof->vn = (b->feedrate) / 60.0;
 
-    // Calculate the direction of the segment and store it
-    compute_direction(b->w_s, point_zero(b), b->target);
-    compute_direction(b->w_e, point_zero(b), b->target);
-
     break;
   case ARC_CW:
   case ARC_CCW:
@@ -246,13 +240,49 @@ int block_la_parse(block_la_t *b) {
   default:
     break;
   }
-  
+
+  b->prof->l = b->length;
   // return number of parsing errors
   return rv;
 }
 
-// For the lookahead approach first all the blocks must be parsed
-int block_la_calculate_velocities(block_la_t *b){
+int block_la_compute_tangents(block_la_t *b){
+  data_t theta, ct, st, x, y;
+  switch (b->type)
+  {
+  case LINE:
+    // Calculate the direction of the segment and store it
+    compute_direction(b->w_s, point_zero(b), b->target);
+    compute_direction(b->w_e, point_zero(b), b->target);
+    break;
+
+  case ARC_CW:
+  case ARC_CCW:
+    // Here we get the vector from the starting and endopoint to the center
+    // the tangent to the circle is rotated of 90 deg wrt to z axis
+    theta = (b->type == ARC_CW) ? M_PI/2 : -M_PI/2;
+    ct = cos(theta);
+    st = sin(theta);
+    
+    compute_direction(b->w_s, point_zero(b), b->center);
+    compute_direction(b->w_e, b->target, b->center);
+
+    x = point_x(b->w_s);
+    y = point_y(b->w_s);
+    point_set_x(b->w_s, ct * x - st * y);
+    point_set_y(b->w_s, st * x + ct * y);
+
+    x = point_x(b->w_e);
+    y = point_y(b->w_e);
+    point_set_x(b->w_e, ct * x - st * y);
+    point_set_y(b->w_e, st * x + ct * y);
+    break;
+  default:
+    break;
+}
+}
+
+int block_la_compute_velocities(block_la_t *b){
     assert(b); 
     if ( b->type != RAPID && b->type != NO_MOTION){
         data_t vi, vf;
@@ -312,7 +342,6 @@ int block_la_forward_pass(block_la_t *b){
 
   b->prof->vi_fwd = b->prof->vi;
   b->prof->vf_fwd = b->prof->vf;
-  b->prof->l = b->length;
 
   free(s1);
   free(s2);
@@ -394,89 +423,6 @@ int block_la_backward_pass(block_la_t *b){
 
   return 0;
 }
-
-// Rescale the block velocity and timings by a factor k
-// v* = v/k, t* = k t
-int block_la_quantize_profile(block_la_t *b, data_t k){
-
-  b->prof->k = k;
-  b->prof->d_t1 *= k;
-  b->prof->d_t2 *= k;
-  b->prof->d_tm *= k;
-
-  b->prof->vi /= k;
-  b->prof->v /=k;
-  b->prof->vf /= k;
-
-  b->prof->a1 /= pow(k, 2);
-  b->prof->a2 /= pow(k, 2);
-
-  return 0;
-
-
-}
-
-// Evaluate the value of lambda at a certaint time
-data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
-  assert(b);
-  data_t s1, s2, v1, scheck;
-  data_t r;
-  data_t d_t1 = b->prof->d_t1;
-  data_t d_t2 = b->prof->d_t2;
-  data_t d_tm = b->prof->d_tm;
-  data_t a1 = b->prof->a1;
-  data_t a2 = b->prof->a2;
-  data_t vi = b->prof->vi;
-
-  if (t < 0) {
-    r = 0.0;
-    *v = 0.0;
-  }
-  else if (t < d_t1) { // acceleration
-    r = vi * t + a1 * pow(t, 2) / 2.0;
-    *v = vi +a1 * t;
-  }
-  else if (t < (d_t1 + d_tm)) { // maintenance
-    s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1, 2);
-    v1 = vi + a1 * d_t1;
-
-    r = s1 + v1*(t - d_t1);
-    *v = v1;
-  }
-  else if (t < (d_t1 + d_tm + d_t2)) { // deceleration
-    data_t t_2 = d_t1 + d_tm;
-
-    s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1,2);
-    v1 = vi + a1 * d_t1;
-    s2 = s1 + v1 * d_tm;
-
-    r =  s2 + v1 * (t - t_2) + a2 / 2 * pow(t - t_2, 2);
-    *v = v1 + a2 * (t - t_2);
-  }
-
-  else {
-    // Sanity check
-    s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1, 2);
-    v1 = vi + a1 * d_t1;
-    s2 = s1 + v1 * d_tm;
-    scheck = s2 + v1 * d_t2 + a2 / 2 * pow(d_t2, 2);
-
-    if (fabs(b->length - scheck) > TOL){
-      fprintf(stderr, "ERROR IN INTERPOLATION of block %03lu error is : %f\n", b->n, b->length - scheck);
-      return 1;
-    }
-
-    r = b->prof->l;
-    *v = b->prof->vf;
-  }
-  r /= b->prof->l;
-  *v *= 60; // convert to mm/min
-  if(r > 1){
-      fprintf(stderr, "ERROR: lambda > 1 on block %03lu \n", b->n);
-    }
-  return r;
-}
-
 
 // Compute timings and velocities without taking into account the timesteps
 int block_la_compute_raw_profile(block_la_t *b){
@@ -570,6 +516,87 @@ int block_la_compute_raw_profile(block_la_t *b){
   return rv;
 }
 
+// Rescale the block velocity and timings by a factor k
+// v* = v/k, t* = k t
+int block_la_quantize_profile(block_la_t *b, data_t k){
+
+  b->prof->k = k;
+  b->prof->d_t1 *= k;
+  b->prof->d_t2 *= k;
+  b->prof->d_tm *= k;
+
+  b->prof->vi /= k;
+  b->prof->v /=k;
+  b->prof->vf /= k;
+
+  b->prof->a1 /= pow(k, 2);
+  b->prof->a2 /= pow(k, 2);
+
+  return 0;
+
+
+}
+
+// Evaluate the value of lambda at a certaint time
+data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
+  assert(b);
+  data_t s1, s2, v1, scheck;
+  data_t r;
+  data_t d_t1 = b->prof->d_t1;
+  data_t d_t2 = b->prof->d_t2;
+  data_t d_tm = b->prof->d_tm;
+  data_t a1 = b->prof->a1;
+  data_t a2 = b->prof->a2;
+  data_t vi = b->prof->vi;
+
+  if (t < 0) {
+    r = 0.0;
+    *v = 0.0;
+  }
+  else if (t < d_t1) { // acceleration
+    r = vi * t + a1 * pow(t, 2) / 2.0;
+    *v = vi +a1 * t;
+  }
+  else if (t < (d_t1 + d_tm)) { // maintenance
+    s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1, 2);
+    v1 = vi + a1 * d_t1;
+
+    r = s1 + v1*(t - d_t1);
+    *v = v1;
+  }
+  else if (t < (d_t1 + d_tm + d_t2)) { // deceleration
+    data_t t_2 = d_t1 + d_tm;
+
+    s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1,2);
+    v1 = vi + a1 * d_t1;
+    s2 = s1 + v1 * d_tm;
+
+    r =  s2 + v1 * (t - t_2) + a2 / 2 * pow(t - t_2, 2);
+    *v = v1 + a2 * (t - t_2);
+  }
+
+  else {
+    // Sanity check
+    s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1, 2);
+    v1 = vi + a1 * d_t1;
+    s2 = s1 + v1 * d_tm;
+    scheck = s2 + v1 * d_t2 + a2 / 2 * pow(d_t2, 2);
+
+    if (fabs(b->length - scheck) > TOL){
+      fprintf(stderr, "ERROR IN INTERPOLATION of block %03lu error is : %f\n", b->n, b->length - scheck);
+      return 1;
+    }
+
+    r = b->prof->l;
+    *v = b->prof->vf;
+  }
+
+  r /= b->prof->l;
+  *v *= 60; // convert to mm/min
+
+  return r;
+}
+
 // CAREFUL: this function allocates a point
 point_t *block_la_interpolate(block_la_t *b, data_t lambda) {
   assert(b);
@@ -623,16 +650,6 @@ block_la_getter(data_t, act_feedrate, act_feedrate);
 //   ___) | || (_| | |_| | (__  |  _| |_| | | | | (__ 
 //  |____/ \__\__,_|\__|_|\___| |_|  \__,_|_| |_|\___|
 // Definitions for the static functions declared above
-
-// Calculate the integer multiple of sampling time; also prvide the rounding
-// amount in dq
-static data_t quantize(data_t t, data_t tq, data_t *dq) {
-  data_t q;
-  q = ((size_t)(t / tq) + 1) * tq;
-  *dq = q - t;
-  return q;
-}
-
 
 // Calculate the arc coordinates
 static int block_la_arc(block_la_t *b) {
@@ -689,27 +706,6 @@ static int block_la_arc(block_la_t *b) {
   b->r = fabs(b->r);
   b->length = hypot(zf - z0, b->dtheta * b->r);
 
-
-  // Here we get the vector from the starting and endopoint to the center
-  // the tangent to the circle is rotated of 90 deg wrt to z axis
-  data_t theta, ct, st, x, y;
-  theta = (b->type == ARC_CW) ? M_PI/2 : -M_PI/2;
-  ct = cos(theta);
-  st = sin(theta);
-  
-  compute_direction(b->w_s, p0, b->center);
-  compute_direction(b->w_e, b->target, b->center);
-
-  x = point_x(b->w_s);
-  y = point_y(b->w_s);
-  point_set_x(b->w_s, ct * x - st * y);
-  point_set_y(b->w_s, st * x + ct * y);
-
-  x = point_x(b->w_e);
-  y = point_y(b->w_e);
-  point_set_x(b->w_e, ct * x - st * y);
-  point_set_y(b->w_e, st * x + ct * y);
-
   return 0;
 }
 
@@ -726,7 +722,7 @@ static point_t *point_zero(block_la_t *b) {
 static float calc_final_velocity(block_la_t *b){
   assert(b);
 
-    data_t dp, ctheta, m0, m1, alpha, v;
+    data_t dp, ctheta, m0, m1, v;
     data_t x0 = point_x(b->w_e);
     data_t y0 = point_y(b->w_e);
     data_t z0 = point_z(b->w_e);
@@ -754,12 +750,6 @@ static void calc_s1_s2(block_la_t *b, data_t *s1, data_t *s2, int sign){
   assert(s1 && s2);
   *s1 = (pow(b->prof->v, 2) - pow(b->prof->vi, 2)) / (2 * sign *b->acc);
   *s2 = b->length + (pow(b->prof->v, 2) - pow(b->prof->vf, 2)) / (2 * sign * b->acc);
-}
-
-static data_t wrap_angle(data_t alpha){
-  alpha += (alpha > M_PI) ? - 2 * M_PI : 0;
-  alpha += (alpha < -M_PI) ? + 2 * M_PI : 0;
-  return alpha;
 }
 
 // Calculate the components of the vector p1-p0

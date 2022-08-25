@@ -54,6 +54,12 @@ void program_la_print(const program_la_t *program_la, FILE *output);
 // return either EXIT_SUCCESS or EXIT_FAILURE
 int program_la_parse(program_la_t *program_la, machine_t *cfg);
 
+// Run the lookahead algorithm:
+// -> compute angles between the blocks
+// -> forward pass: compute accelerations only
+// -> backward pass: compute decelerations only
+// -> compute raw timings (without considering the timesteps)
+// -> quantize each batch of blocks. A batch contains all the interpolation blocks between two RAPID or NO_MOTION blocks
 int program_la_look_ahead(program_la_t *p, machine_t *m);
 
 // linked-list navigation functions
