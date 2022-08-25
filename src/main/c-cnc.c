@@ -66,9 +66,9 @@ int main(int argc, char const *argv[]) {
       lambda = block_la_lambda(b, t, &f);
       sp = block_la_interpolate(b, lambda);
       if (!sp) continue;
-      // printf("%lu,%f,%f,%f,%f,%f,%f,%f,%f\n", block_la_n(b), t, tt,
-      //   lambda, lambda * block_la_length(b), f,
-      //   point_x(sp), point_y(sp), point_z(sp));
+      printf("%lu,%f,%f,%f,%f,%f,%f,%f,%f\n", block_la_n(b), t, tt,
+        lambda, lambda * block_la_length(b), f,
+        point_x(sp), point_y(sp), point_z(sp));
       wait_next(5e6);
     }
   }

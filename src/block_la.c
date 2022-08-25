@@ -25,7 +25,7 @@
 // Trapezoidal velocity profile
 typedef struct {
   data_t l;             // nominal feedrate and length
-  data_t vi, v, vf;   // initial and final feedrate
+  data_t vi, v, vn, vf;   // initial and final feedrate
   data_t vi_fwd, vf_fwd;     //Only for debug prposes
   data_t s1, s2, s_inter;  //curvilinear absissa of feed transition
   int mask;              // bitmask for feed profile
@@ -49,7 +49,7 @@ typedef struct block_la{
   data_t length;         // total length
   data_t i, j, r;        // center coordinates and radius (if it is an arc)
   data_t theta0, dtheta; // arc initial angle and arc angle
-  data_t alpha_s, alpha_e; //angle of the tangent to the circle (if g02/g03) or angle of the line
+  point_t *w_s, *w_e; //vector tangent to the circle (if g02/g03) or direction of the line
   data_t acc;            // actual acceleration
   machine_t *machine;    // machine configuration
   block_la_profile_t *prof; // velocity profile
@@ -64,6 +64,7 @@ static int block_la_arc(block_la_t *b);
 static float calc_final_velocity(block_la_t *b);
 static void calc_s1_s2(block_la_t *b, data_t *s1, data_t *s2, int sign);
 static data_t wrap_angle(data_t alpha);
+static void compute_direction(point_t *v, point_t *p0, point_t *p1);
 static data_t quantize(data_t t, data_t tq, data_t *dq);
 
 //   _____                 _   _
@@ -98,6 +99,8 @@ block_la_t *block_la_new(const char *line, block_la_t *prev, machine_t *cfg) {
   b->target = point_new();
   b->delta = point_new();
   b->center = point_new();
+  b->w_s = point_new();
+  b->w_e = point_new();
 
   // allocate memory for profile struct
   b->prof = (block_la_profile_t *)calloc(1, sizeof(block_la_profile_t));
@@ -129,6 +132,8 @@ void block_la_free(block_la_t *b) {
   point_free(b->target);
   point_free(b->center);
   point_free(b->delta);
+  point_free(b->w_s);
+  point_free(b->w_e);
   free(b);
   b = NULL;
 }
@@ -155,8 +160,8 @@ void block_la_print_velocity_target(block_la_t *b, FILE *out){
 
 void block_la_print_velocity_profile(block_la_t *b){
     assert(b);
-    printf("%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->vi, b->prof->v,\
-                                                       b->prof->vf, b->prof->vi_fwd, b->prof->vf_fwd,\
+    printf("%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->d_t1, b->prof->d_t2 ,b->prof->vi, b->prof->v,\
+                                                       b->prof->vf, b->prof->vn,  b->prof->vi_fwd, b->prof->vf_fwd,\
                                                        b->prof->s_inter, b->prof->s1, b->prof->s2, b->prof->mask,b->acc);
 }
 
@@ -194,10 +199,12 @@ int block_la_parse(block_la_t *b) {
     // calculate feed profile
     b->acc = machine_A(b->machine);
     b->act_feedrate = b->feedrate;
-    b->prof->v = (b->feedrate) / 60.0;
-    // Calculate the angle of the segment
-    b->alpha_s = b->alpha_e = \
-              atan2(point_y(b->target) - point_y(point_zero(b)), point_x(b->target) - point_x(point_zero(b)));
+    b->prof->v = b->prof->vn = (b->feedrate) / 60.0;
+
+    // Calculate the direction of the segment and store it
+    compute_direction(b->w_s, b->target, point_zero(b));
+    compute_direction(b->w_e, b->target, point_zero(b));
+
     break;
   case ARC_CW:
   case ARC_CCW:
@@ -465,7 +472,8 @@ int block_la_compute_raw_profile(block_la_t *b){
   // Short block: no maintenance and the first bit of the mask is true
   if(b->type == RAPID || b->type == NO_MOTION) return 0;
 
-  data_t sign, s_check, v, a1, a2;
+  int rv = 0;
+  data_t sign, delta, s_check, v, a1, a2;
 
   data_t vi = b->prof->vi;
   data_t s_int = b->prof->s_inter;
@@ -481,28 +489,38 @@ int block_la_compute_raw_profile(block_la_t *b){
     // If the first acceleration bit is set, it means we have to accelerate, otherwise decelerate
     sign = ((b->prof->mask & 0b10101) == 0b10100) ? 1 : -1;
     a1 *= sign;
-
-    d_t1 = 1/a1 * (-vi + sqrt(2 * a1 * s_int + pow(vi, 2)));
+    delta = 2 * a1 * s_int + pow(vi, 2);
+    delta = (delta < 0 && delta > - TOL) ? 0 : delta;
+    d_t1 = 1/a1 * (-vi + sqrt(delta));
     v= vi + a1 * d_t1;
 
     // If the second acceleration bit is set, it means we have to accelerate, otherwise decelerate
     sign = ((b->prof->mask & 0b11010) == 0b11000) ? 1 : -1;
     a2 *= sign;
-    d_t2 = 1/a2 * (-v + sqrt(2 * a2 * (l - s_int) + pow(v, 2)));
+    delta = 2 * a2 * (l - s_int) + pow(v, 2);
+    delta = (delta < 0 && delta > - TOL) ? 0 : delta;
+    d_t2 = 1/a2 * (-v + sqrt(delta));
   }
 
   // long block
   else {
     sign = ((b->prof->mask & 0b00101) == 0b00100) ? 1 : -1;
     a1 *= sign;
-    d_t1 = 1/a1 * (-vi + sqrt(2 * a1 * s1 + pow(vi, 2)));
+
+    delta = 2 * a1 * s1 + pow(vi, 2);
+    delta = (delta < 0 && delta > - TOL) ? 0 : delta;
+    d_t1 = 1/a1 * (-vi + sqrt(delta));
+    
     v = vi +  a1 * d_t1;
 
     d_tm = (s2 - s1)/v;
     
     sign = ((b->prof->mask & 0b01010) == 0b01000) ? 1 : -1;
     a2 *= sign;
-    d_t2 = 1/a2 * (-v + sqrt(2 * a2 * (l - s2)+ pow(v, 2)));
+
+    delta = 2 * a2 * (l - s2) + pow(v, 2);
+    delta = (delta < 0 && delta > - TOL) ? 0 : delta;
+    d_t2 = 1/a2 * (-v + sqrt(delta));
   }
 
   s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1, 2);
@@ -510,9 +528,20 @@ int block_la_compute_raw_profile(block_la_t *b){
   s2 = s1 + v * d_tm;
   s_check = s2 + v * d_t2 + a2 / 2 * pow(d_t2, 2);
 
+  if (isnan(d_t1)){
+    fprintf(stderr, "ERROR : cannot compute t1 for block: %03lu\n", b->n);
+    rv++;
+    }
+
+  if (isnan(d_t2)){
+    fprintf(stderr, "ERROR : cannot compute  t2 for block: %03lu\n", b->n);
+    rv++;
+
+    }
+
   if (fabs(b->length - s_check) > TOL){
     fprintf(stderr, "Mistmach of interpolated and nominal length %03lu Error is : %f\n", b->n, b->length - s_check);
-    return 1;
+    rv++;
   }
 
   b->prof->a1 = a1;
@@ -524,7 +553,7 @@ int block_la_compute_raw_profile(block_la_t *b){
   b->prof->v = v;
 
 
-  return 0;
+  return rv;
 }
 
 // CAREFUL: this function allocates a point
@@ -644,18 +673,29 @@ static int block_la_arc(block_la_t *b) {
   b->length = hypot(zf - z0, b->dtheta * b->r);
   // from now on , it's safer to drop radius angle
   b->r = fabs(b->r);
-
-  // Calculate the tangent to the arc in the initial point
-  data_t sign;
-  sign = (b->type == ARC_CCW) ? 1 : -1;
-  b->alpha_s = sign * M_PI/2 + atan2(y0 - yc, x0 - xc);
-  b->alpha_s = wrap_angle(b->alpha_s);
-
-  // Calculate the tangent to the arc in the final point
-  b->alpha_e = sign * M_PI/2 + atan2(yf - yc, xf - xc);
-  b->alpha_e = wrap_angle(b->alpha_e);
-
   b->length = hypot(zf - z0, b->dtheta * b->r);
+
+
+  // Here we get the vector from the starting and endopoint to the center
+  // the tangent to the circle is rotated of 90 deg wrt to z axis
+  data_t theta, ct, st, x, y;
+  theta = (b->type == ARC_CW) ? M_PI/2 : -M_PI/2;
+  ct = cos(theta);
+  st = sin(theta);
+  
+  compute_direction(b->w_s, p0, b->center);
+  compute_direction(b->w_e, b->target, b->center);
+
+  x = point_x(b->w_s);
+  y = point_y(b->w_s);
+  point_set_x(b->w_s, ct * x - st * y);
+  point_set_y(b->w_s, st * x + ct * y);
+
+  x = point_x(b->w_e);
+  y = point_y(b->w_e);
+  point_set_x(b->w_e, ct * x - st * y);
+  point_set_y(b->w_e, st * x + ct * y);
+
   return 0;
 }
 
@@ -668,10 +708,26 @@ static point_t *point_zero(block_la_t *b) {
 
 // Compute the terminal velocity of the current block b
 static float calc_final_velocity(block_la_t *b){
-    data_t alpha, v;
-    alpha = b->next->alpha_s - b->alpha_e;
-    v = fabs((b->prof->v + b->next->prof->v) / 2 * cos(alpha));
-    v =  (alpha <= M_PI/4 && alpha >= -M_PI/4) ? v : 0;
+    data_t dp, ctheta, m0, m1, alpha, v;
+    data_t x0 = point_x(b->w_s);
+    data_t y0 = point_y(b->w_s);
+    data_t z0 = point_z(b->w_s);
+    data_t x1 = point_x(b->next->w_e);
+    data_t y1 = point_y(b->next->w_e);
+    data_t z1 = point_z(b->next->w_e);
+
+    // Dot product of the current tangent vector and the previous one
+    dp = x0 * x1 + y0 * y1 + z0 * z1;
+    // Magnitude of the two vectors
+    m0 = sqrt(pow(x0, 2) + pow(y0, 2) + pow(z0, 2));
+    m1 = sqrt(pow(x1, 2) + pow(y1, 2) + pow(z1, 2));
+
+    // Calculate cos(theta) as dot_prod(a, b) / |ab|
+    ctheta = fabs((dp / (m0 * m1))); 
+
+    v = fabs((b->prof->v + b->next->prof->v) / 2) * ctheta;
+    v =  (ctheta >= sqrt(2)/2) ? v : 0;
+
     return v;
 }
 
@@ -689,6 +745,15 @@ static data_t wrap_angle(data_t alpha){
   return alpha;
 }
 
+// calculate the components of the vector p1-p0
+static void compute_direction(point_t *v, point_t *p0, point_t *p1){
+  data_t i, j, k;
+  i = point_x(p1) - point_x(p0);
+  j = point_y(p1) - point_y(p0);
+  k = point_z(p1) - point_z(p0);
+
+  point_set_xyz(v, i, j, k);
+}
 // Parse a single G-code word (cmd+arg)
 static int block_la_set_fields(block_la_t *b, char cmd, char *arg) {
   assert(b && arg);
