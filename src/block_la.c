@@ -202,8 +202,8 @@ int block_la_parse(block_la_t *b) {
     b->prof->v = b->prof->vn = (b->feedrate) / 60.0;
 
     // Calculate the direction of the segment and store it
-    compute_direction(b->w_s, b->target, point_zero(b));
-    compute_direction(b->w_e, b->target, point_zero(b));
+    compute_direction(b->w_s, point_zero(b), b->target);
+    compute_direction(b->w_e, point_zero(b), b->target);
 
     break;
   case ARC_CW:
@@ -709,12 +709,12 @@ static point_t *point_zero(block_la_t *b) {
 // Compute the terminal velocity of the current block b
 static float calc_final_velocity(block_la_t *b){
     data_t dp, ctheta, m0, m1, alpha, v;
-    data_t x0 = point_x(b->w_s);
-    data_t y0 = point_y(b->w_s);
-    data_t z0 = point_z(b->w_s);
-    data_t x1 = point_x(b->next->w_e);
-    data_t y1 = point_y(b->next->w_e);
-    data_t z1 = point_z(b->next->w_e);
+    data_t x0 = point_x(b->w_e);
+    data_t y0 = point_y(b->w_e);
+    data_t z0 = point_z(b->w_e);
+    data_t x1 = point_x(b->next->w_s);
+    data_t y1 = point_y(b->next->w_s);
+    data_t z1 = point_z(b->next->w_s);
 
     // Dot product of the current tangent vector and the previous one
     dp = x0 * x1 + y0 * y1 + z0 * z1;
@@ -723,10 +723,10 @@ static float calc_final_velocity(block_la_t *b){
     m1 = sqrt(pow(x1, 2) + pow(y1, 2) + pow(z1, 2));
 
     // Calculate cos(theta) as dot_prod(a, b) / |ab|
-    ctheta = fabs((dp / (m0 * m1))); 
+    ctheta = (dp / (m0 * m1)); 
 
     v = fabs((b->prof->v + b->next->prof->v) / 2) * ctheta;
-    v =  (ctheta >= sqrt(2)/2) ? v : 0;
+    v =  (ctheta >= 1/2) ? v : 0; // If the angle is > 60 deg, the the target is zero vel
 
     return v;
 }
