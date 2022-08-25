@@ -26,12 +26,17 @@
 typedef struct {
   data_t l;             // nominal feedrate and length
   data_t vi, v, vn, vf;   // initial and final feedrate
-  data_t vi_fwd, vf_fwd;     //Only for debug prposes
-  data_t s1, s2, s_inter;  //curvilinear absissa of feed transition
-  int mask;              // bitmask for feed profile
+  data_t vi_fwd, vf_fwd, s_inter;     //Only for plottin/debugging prposes
+  data_t s1, s2;  //curvilinear absissa of feed transition
   data_t d_t1, d_tm, d_t2;       // trapezoid times
   data_t dt, k;               // total time and scaling factor
   data_t a1, a2;               // profile acceleration deceleration
+  // | Short block | S2 Acc | S1 Acc | S2 Dec | S1 DEC
+  // basically depending on the value of s1 and s2 got from the forward and backward pass
+  // the bitmask is set. If a 1 appears in one of the columns it means that that pass
+  // "has found" a direction to proceed. The backward pass has priority over the forward one, 
+  // since it is computed afterwards and only after it we know if the targets are reachable
+  int mask;              // bitmask for feed profile
 } block_la_profile_t;
 
 // block_la object structure
@@ -158,6 +163,7 @@ void block_la_print_velocity_target(block_la_t *b, FILE *out){
     fprintf(out, "%03lu, velocity targets :-> [%f, %f, %f]\n", b->n, (b->prof->vi)*60, (b->prof->v)*60, (b->prof->vf)*60);
 }
 
+// print the velocity target of the block
 void block_la_print_velocity_profile(block_la_t *b){
     assert(b);
     printf("%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->d_t1, b->prof->d_t2 ,b->prof->vi, b->prof->v,\
@@ -240,6 +246,7 @@ int block_la_parse(block_la_t *b) {
   default:
     break;
   }
+  
   // return number of parsing errors
   return rv;
 }
@@ -267,7 +274,9 @@ int block_la_calculate_velocities(block_la_t *b){
     return 0;
 }
 
-
+// Computes the forward pass i.e. only accelerations
+// Note that here we do not "cover" the deceleration bits,
+// since they have higher priority
 int block_la_forward_pass(block_la_t *b){
   assert(b);
   if(b->type == RAPID | b->type == NO_MOTION) return 0;
@@ -287,12 +296,14 @@ int block_la_forward_pass(block_la_t *b){
 
   calc_s1_s2(b, s1, s2, 1);
 
+  // If it founds s1 positive, then we may start with a acceleration
   if (*s1 >= 0){
     b->prof->mask &= 0b11111;
     b->prof->s1 = *s1;
   }
   else b->prof->mask &= 0b11011;
 
+  // If it founds s2 < L, then we may end with a deceleration
   if (*s2 <= b->length){
     b->prof->mask &= 0b11111; 
     b->prof->s2 = *s2;
@@ -301,9 +312,7 @@ int block_la_forward_pass(block_la_t *b){
 
   b->prof->vi_fwd = b->prof->vi;
   b->prof->vf_fwd = b->prof->vf;
-
   b->prof->l = b->length;
-
 
   free(s1);
   free(s2);
@@ -327,6 +336,7 @@ int block_la_backward_pass(block_la_t *b){
   if(b->prof->vi > v_max){
     b->prof->vi = v_max;
     b->prev->prof->vf = v_max;
+    // Then we have only deceleration
     b->prof->mask &= 0b10011;
   }
 
@@ -346,7 +356,7 @@ int block_la_backward_pass(block_la_t *b){
   }
   else temp_mask &= 0b11101;
   
-  // If the backward pass didn't find any point, then it's all abaut acceleration
+  // If the backward pass didn't find any point, then it's all about accelerations
   temp_mask &= (temp_mask == 0b11111) ? 0b11100 : 0b11111; 
   b->prof->mask &= temp_mask;
 
@@ -385,6 +395,8 @@ int block_la_backward_pass(block_la_t *b){
   return 0;
 }
 
+// Rescale the block velocity and timings by a factor k
+// v* = v/k, t* = k t
 int block_la_quantize_profile(block_la_t *b, data_t k){
 
   b->prof->k = k;
@@ -403,7 +415,7 @@ int block_la_quantize_profile(block_la_t *b, data_t k){
 
 
 }
-// Evaluate the value of lambda at a certaint time
+
 // Evaluate the value of lambda at a certaint time
 data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
   assert(b);
@@ -489,6 +501,8 @@ int block_la_compute_raw_profile(block_la_t *b){
     // If the first acceleration bit is set, it means we have to accelerate, otherwise decelerate
     sign = ((b->prof->mask & 0b10101) == 0b10100) ? 1 : -1;
     a1 *= sign;
+    // TODO is it the best way? sometimes we have issue with numerical precision,
+    // and this is negative, then the sqrt fails
     delta = 2 * a1 * s_int + pow(vi, 2);
     delta = (delta < 0 && delta > - TOL) ? 0 : delta;
     d_t1 = 1/a1 * (-vi + sqrt(delta));
@@ -707,7 +721,11 @@ static point_t *point_zero(block_la_t *b) {
 }
 
 // Compute the terminal velocity of the current block b
+// based on the nominal velocity of the current block and the next one
+// and also on the angle between the two segments 
 static float calc_final_velocity(block_la_t *b){
+  assert(b);
+
     data_t dp, ctheta, m0, m1, alpha, v;
     data_t x0 = point_x(b->w_e);
     data_t y0 = point_y(b->w_e);
@@ -725,7 +743,7 @@ static float calc_final_velocity(block_la_t *b){
     // Calculate cos(theta) as dot_prod(a, b) / |ab|
     ctheta = (dp / (m0 * m1)); 
 
-    v = fabs((b->prof->v + b->next->prof->v) / 2) * ctheta;
+    v = fabs(((b->prof->v + b->next->prof->v) / 2) * ctheta);
     v =  (ctheta >= 1/2) ? v : 0; // If the angle is > 60 deg, the the target is zero vel
 
     return v;
@@ -734,7 +752,6 @@ static float calc_final_velocity(block_la_t *b){
 // Compute s1 and s2 of the block, sign should be 1 for forward, -1 for backward
 static void calc_s1_s2(block_la_t *b, data_t *s1, data_t *s2, int sign){
   assert(s1 && s2);
-
   *s1 = (pow(b->prof->v, 2) - pow(b->prof->vi, 2)) / (2 * sign *b->acc);
   *s2 = b->length + (pow(b->prof->v, 2) - pow(b->prof->vf, 2)) / (2 * sign * b->acc);
 }
@@ -745,7 +762,7 @@ static data_t wrap_angle(data_t alpha){
   return alpha;
 }
 
-// calculate the components of the vector p1-p0
+// Calculate the components of the vector p1-p0
 static void compute_direction(point_t *v, point_t *p0, point_t *p1){
   data_t i, j, k;
   i = point_x(p1) - point_x(p0);
@@ -754,6 +771,7 @@ static void compute_direction(point_t *v, point_t *p0, point_t *p1){
 
   point_set_xyz(v, i, j, k);
 }
+
 // Parse a single G-code word (cmd+arg)
 static int block_la_set_fields(block_la_t *b, char cmd, char *arg) {
   assert(b && arg);
