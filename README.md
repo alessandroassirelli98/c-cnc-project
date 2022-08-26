@@ -112,6 +112,19 @@ The command `cmake --build build -t install` (or `cmake --install build`) also i
 
 You are suggested to run `export PATH=$PATH:$PWD/products_host/bin` once per session, so that you can simply run a program by typing its name (e.g. `ini_test`).
 
+## Run the code and show the velocity profiles
+To run the code you have to first compile the library:
+```
+cmake -Bbuild
+cmake --build build -t install
+```
+Then you can run the script via `./build/c-cnc <your_Gcode_file> -> <your_file>.csv`
+
+In this way the stdout is saved in the csv file that you specified and that file can be loaded for plotting. The "plug and play" command is:
+```
+./build/c-cnc lookahead.gcode -> test.csv
+```
+then you can open the jupyter notebook "profile_plot_time.ipynb" and run it, if you specified a different file name you have to change the jupyter nb accordingly
 ## Other projects
 
 The cross-build system is taken from <https://github.com/pbosetti/xtemplate>.
