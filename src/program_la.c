@@ -129,7 +129,8 @@ int program_la_parse(program_la_t *p, machine_t *cfg) {
   return EXIT_SUCCESS;
 }
 
-int program_la_look_ahead(program_la_t *p, machine_t *m){
+int program_la_look_ahead(program_la_t *p, machine_t *m, char *vel_prof_f){
+  assert (p && m);
   block_la_t *b = p->first;
   block_la_t *bp;
 
@@ -168,12 +169,19 @@ int program_la_look_ahead(program_la_t *p, machine_t *m){
   data_t t_star = 0;
   
   b = p->first;
+
+  // Clean the file to store abscissa velocity profiiiles
+  if(vel_prof_f && remove(vel_prof_f)) eprintf("Removed file: %s\n", vel_prof_f);
+
   while (b){
     if (block_la_compute_raw_profile(b)){
       eprintf("ERROR: in computing timings \n");
       exit(EXIT_FAILURE);
     }
-    // block_la_print_velocity_profile(b);
+    if(vel_prof_f && block_la_print_velocity_profile(b, vel_prof_f)){
+      eprintf("Cannot save velocity profiles\n");
+    }
+    
     t += block_la_dt(b);
 
     // If next block is a zero velocity one

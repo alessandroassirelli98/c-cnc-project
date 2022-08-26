@@ -162,11 +162,17 @@ void block_la_print_velocity_target(block_la_t *b, FILE *out){
 }
 
 // print the velocity target of the block
-void block_la_print_velocity_profile(block_la_t *b){
-    assert(b);
-    printf("%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->d_t1, b->prof->d_t2 ,b->prof->vi, b->prof->v,\
-                                                       b->prof->vf, b->prof->vn,  b->prof->vi_fwd, b->prof->vf_fwd,\
-                                                       b->prof->s_inter, b->prof->s1, b->prof->s2, b->prof->mask,b->acc);
+int block_la_print_velocity_profile(block_la_t *b, FILE *out){
+  assert(b);
+  if(!(out = fopen(out, "ab"))){
+    fprintf(stderr, "ERROR: cannot open %s to write the space domain velocity profile\n", out);
+    return 1;
+  }
+  fprintf(out, "%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->d_t1, b->prof->d_t2 ,b->prof->vi, b->prof->v,\
+                                                      b->prof->vf, b->prof->vn,  b->prof->vi_fwd, b->prof->vf_fwd,\
+                                                      b->prof->s_inter, b->prof->s1, b->prof->s2, b->prof->mask,b->acc);
+  fclose(out);
+  return 0;
 }
 
 // ALGORITHMS ==================================================================

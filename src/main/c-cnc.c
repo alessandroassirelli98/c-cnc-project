@@ -33,6 +33,7 @@ int main(int argc, char const *argv[]) {
   block_la_t *b = NULL;
   program_la_t *p = NULL;
   data_t t, tt, tq, lambda, f;
+  char *velocity_profile_save;
   machine_t *machine = machine_new("settings.ini");
   if (!machine) {
     eprintf("Error creating machine instance\n");
@@ -49,7 +50,9 @@ int main(int argc, char const *argv[]) {
     exit(EXIT_FAILURE);
   }
   program_la_print(p, stderr);
-  program_la_look_ahead(p, machine);
+
+  velocity_profile_save = argv[2];
+  program_la_look_ahead(p, machine, velocity_profile_save);
 
   tt = 0;
   while ((b = program_la_next(p))) {

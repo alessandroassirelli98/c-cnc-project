@@ -118,11 +118,11 @@ To run the code you have to first compile the library:
 cmake -Bbuild
 cmake --build build -t install
 ```
-Then you can run the script via `./build/c-cnc <your_Gcode_file> -> <your_file>.csv`
+Then you can run the script via `./build/c-cnc <your_Gcode_file> <your_abscissa_based_velocity_profile>.csv -> <your_file>.csv`
 
-In this way the stdout is saved in the csv file that you specified and that file can be loaded for plotting. The "plug and play" command is:
+In this way the velocity targets and informations required to plot in abscissa coordinates are saved in a file and the stdout is saved in the csv file that you specified and that file can be loaded for plotting. The "plug and play" command is:
 ```
-./build/c-cnc lookahead.gcode -> test.csv
+./build/c-cnc lookahead.gcode velocity_profile_s.csv -> velocity_profile_t.csv
 ```
 then you can open the jupyter notebook "profile_plot_time.ipynb" and run it, if you specified a different file name you have to change the jupyter nb accordingly
 ## Other projects

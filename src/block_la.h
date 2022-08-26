@@ -53,7 +53,7 @@ block_la_t *block_la_new(const char *line, block_la_t *prev, machine_t *cfg);
 void block_la_free(block_la_t *b);
 void block_la_print(block_la_t *b, FILE *out);
 void block_la_print_velocity_target(block_la_t *b, FILE *out);
-void block_la_print_velocity_profile(block_la_t *b);
+int block_la_print_velocity_profile(block_la_t *b, FILE *out);
 
 // ALGORITHMS ==================================================================
 
@@ -78,7 +78,6 @@ int block_la_compute_raw_profile(block_la_t *b);
 // Rescale the block velocity and timings by a factor k
 // v* = v/k, t* = k t
 int block_la_quantize_profile(block_la_t *b, data_t k);
-
 
 
 // Evaluate the value of lambda at a certaint time

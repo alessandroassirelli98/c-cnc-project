@@ -60,7 +60,12 @@ int program_la_parse(program_la_t *program_la, machine_t *cfg);
 // -> backward pass: compute decelerations only
 // -> compute raw timings (without considering the timesteps)
 // -> quantize each batch of blocks. A batch contains all the interpolation blocks between two RAPID or NO_MOTION blocks
-int program_la_look_ahead(program_la_t *p, machine_t *m);
+/**
+ * @param p the program object
+ * @param m the name machine object
+ * @param vel_prof_f file.csv to store the velocity profiles
+**/
+int program_la_look_ahead(program_la_t *p, machine_t *m, char *vel_prof_f);
 
 // linked-list navigation functions
 block_la_t *program_la_next(program_la_t *program_la);
