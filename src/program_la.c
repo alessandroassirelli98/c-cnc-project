@@ -173,7 +173,7 @@ int program_la_look_ahead(program_la_t *p, machine_t *m, char *vel_prof_f){
   // Clean the file to store abscissa velocity profiiiles
   if(vel_prof_f && remove(vel_prof_f)) eprintf("Removed file: %s\n", vel_prof_f);
 
-  while (b){
+   while (b) {
     if (block_la_compute_raw_profile(b)){
       eprintf("ERROR: in computing timings \n");
       exit(EXIT_FAILURE);
@@ -205,9 +205,7 @@ int program_la_look_ahead(program_la_t *p, machine_t *m, char *vel_prof_f){
     b = block_la_next(b);
   }
   eprintf("Total time: %f\n", tt);
-  
-  free(b);
-  free(bp);
+
   return 0;
 }
 
