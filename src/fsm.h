@@ -16,7 +16,7 @@ Functions and types have been generated with prefix "ccnc_"
 #ifndef FSM_H
 #define FSM_H
 #include "machine.h"
-#include "program.h"
+#include "program_la.h"
 #include "defines.h"
 #include <stdlib.h>
 
@@ -27,7 +27,7 @@ typedef struct {
   char *ini_file;     // INI file
   char const *prog_file;    // G-code program file
   machine_t *machine; // machine object
-  program_t *prog;    // program object
+  program_la_t *prog;    // program object
   data_t t_tot;       // total program timer
   data_t t_blk;       // block timer
 } ccnc_state_data_t;

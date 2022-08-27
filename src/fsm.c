@@ -14,7 +14,7 @@ Functions and types have been generated with prefix "ccnc_"
 ******************************************************************************/
 
 #include "fsm.h"
-#include "block.h"
+#include "block_la.h"
 #include "point.h"
 #include <unistd.h>
 #include <termios.h>
@@ -95,20 +95,21 @@ ccnc_state_t ccnc_do_init(ccnc_state_data_t *data) {
   }
 
   // * load and parse the G-code file
-  data->prog = program_new(data->prog_file);
+  data->prog = program_la_new(data->prog_file);
   if (!data->prog) {
     next_state = CCNC_STATE_STOP;
     goto next_state;
   }
-  if (program_parse(data->prog, data->machine) == EXIT_FAILURE) {
+  if (program_la_parse(data->prog, data->machine) == EXIT_FAILURE) {
     next_state = CCNC_STATE_STOP;
     goto next_state;
   }
   // if available, calculate here the look-ahead
+  program_la_look_ahead(data->prog, data->machine, "prof.csv");
 
   // * print G-code file
   eprintf("Parsed the program %s\n", data->prog_file);
-  program_print(data->prog, stderr);
+  program_la_print(data->prog, stderr);
 
   sp = machine_setpoint(data->machine);
   zero = machine_zero(data->machine);
@@ -203,7 +204,7 @@ ccnc_state_t ccnc_do_stop(ccnc_state_data_t *data) {
     machine_free(data->machine);
   }
   if (data->prog) {
-    program_free(data->prog);
+    program_la_free(data->prog);
   }
   eprintf(" done.\n");
   
@@ -225,13 +226,13 @@ ccnc_state_t ccnc_do_load_block(ccnc_state_data_t *data) {
   
   // Steps:
   // * load next block/
-  block_t *b = program_next(data->prog);
+  block_la_t *b = program_la_next(data->prog);
   if (!b) {
     next_state = CCNC_STATE_IDLE;
     goto next_state;
   }
-  block_print(b, stderr);
-  switch (block_type(b))
+  block_la_print(b, stderr);
+  switch (block_la_type(b))
   {
   case NO_MOTION:
     next_state = CCNC_STATE_NO_MOTION;
@@ -326,27 +327,27 @@ ccnc_state_t ccnc_do_interp_motion(ccnc_state_data_t *data) {
   ccnc_state_t next_state = CCNC_NO_CHANGE;
   data_t tq = machine_tq(data->machine);
   data_t lambda, feed;
-  block_t *b = program_current(data->prog);
+  block_la_t *b = program_la_current(data->prog);
   point_t *sp;
 
   // Steps:
   // * calculate lambda
   // * interpolate position
   // * update times
-  // * if lambda >= 1 transition to load_block
+  // * if lambda >= 1 transition to load_block_la
   data->t_blk += tq;
   data->t_tot += tq;
-  if (data->t_blk >= block_dt(b) + tq / 2.0) {
+  if (data->t_blk >= block_la_dt(b) + tq / 2.0) {
     next_state = CCNC_STATE_LOAD_BLOCK;
     goto next_block;
   }
-  lambda = block_lambda(b, data->t_blk, &feed);
-  sp = block_interpolate(b, lambda);
+  lambda = block_la_lambda(b, data->t_blk, &feed);
+  sp = block_la_interpolate(b, lambda);
   if (!sp) {
     next_state = CCNC_STATE_LOAD_BLOCK;
     goto next_block;
   }
-  printf("%lu,%f,%f,%f,%f,%f,%f,%f,%f\n", block_n(b), data->t_tot, data->t_blk, lambda, lambda * block_length(b), feed, point_x(sp), point_y(sp), point_z(sp));
+  printf("%lu,%f,%f,%f,%f,%f,%f,%f,%f\n", block_la_n(b), data->t_tot, data->t_blk, lambda, lambda * block_la_length(b), feed, point_x(sp), point_y(sp), point_z(sp));
   machine_sync(data->machine, 0);
 
 next_block:
@@ -377,6 +378,7 @@ next_block:
 // | |_| | | | '_ \ / __| __| |/ _ \| '_ \/ __|
 // |  _| |_| | | | | (__| |_| | (_) | | | \__ \
 // |_|  \__,_|_| |_|\___|\__|_|\___/|_| |_|___/
+
 //    
                                          
 // This function is called in 1 transition:
@@ -392,8 +394,8 @@ void ccnc_reset(ccnc_state_data_t *data) {
 // 1. from load_block to rapid_motion
 void ccnc_begin_rapid(ccnc_state_data_t *data) {
   point_t *sp = machine_setpoint(data->machine);
-  block_t *b = program_current(data->prog);
-  point_t *target = block_target(b);
+  block_la_t *b = program_la_current(data->prog);
+  point_t *target = block_la_target(b);
   // Steps:
   // * reset block timer
   // * set final position as set point and use machine_sync

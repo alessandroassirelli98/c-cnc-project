@@ -3,11 +3,11 @@
 #include "../program_la.h"
 #include "../block_la.h"
 #include "../point.h"
-//#include "../fsm.h"
+#include "../fsm.h"
 
 #define eprintf(...) fprintf(stderr, __VA_ARGS__)
 
-#if 0
+#if 1
 int main(int argc, char const *argv[]) {
   ccnc_state_data_t state_data = {
     .ini_file = "settings.ini",
