@@ -55,6 +55,7 @@ int main(int argc, char const *argv[]) {
   program_la_look_ahead(p, machine, velocity_profile_save);
 
   tt = 0;
+  printf("n,t_tot,t_blk,lambda,s,feed,x,y,z\n");
   while ((b = program_la_next(p))) {
     if (block_la_type(b) == RAPID || block_la_type(b) > ARC_CCW) {
       continue;
@@ -69,7 +70,7 @@ int main(int argc, char const *argv[]) {
       lambda = block_la_lambda(b, t, &f);
       sp = block_la_interpolate(b, lambda);
       if (!sp) continue;
-      printf("%lu,%f,%f,%f,%f,%f,%f,%f,%f\n", block_la_n(b), t, tt,
+      printf("%lu,%f,%f,%f,%f,%f,%f,%f,%f\n", block_la_n(b), tt, t,
         lambda, lambda * block_la_length(b), f,
         point_x(sp), point_y(sp), point_z(sp));
       wait_next(5e6);
