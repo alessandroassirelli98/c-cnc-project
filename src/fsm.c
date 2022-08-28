@@ -335,8 +335,10 @@ ccnc_state_t ccnc_do_interp_motion(ccnc_state_data_t *data) {
   // * interpolate position
   // * update times
   // * if lambda >= 1 transition to load_block_la
+
   data->t_blk += tq;
   data->t_tot += tq;
+  
   if (data->t_blk >= block_la_dt(b) + tq / 2.0) {
     next_state = CCNC_STATE_LOAD_BLOCK;
     goto next_block;
@@ -349,7 +351,7 @@ ccnc_state_t ccnc_do_interp_motion(ccnc_state_data_t *data) {
   }
   printf("%lu,%f,%f,%f,%f,%f,%f,%f,%f\n", block_la_n(b), data->t_tot, data->t_blk, lambda, lambda * block_la_length(b), feed, point_x(sp), point_y(sp), point_z(sp));
   machine_sync(data->machine, 0);
-
+  
 next_block:
   switch (next_state) {
     case CCNC_NO_CHANGE:

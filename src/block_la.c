@@ -69,6 +69,7 @@ static int block_la_arc(block_la_t *b);
 static float calc_final_velocity(block_la_t *b);
 static void calc_s1_s2(block_la_t *b, data_t *s1, data_t *s2, int sign);
 static void compute_direction(point_t *v, point_t *p0, point_t *p1);
+static data_t quantize(data_t t, data_t tq, int sign, data_t *dq);
 
 //   _____                 _   _
 //  |  ___|   _ _ __   ___| |_(_) ___  _ __  ___
@@ -438,8 +439,11 @@ int block_la_compute_raw_profile(block_la_t *b){
 
   int rv = 0;
   data_t sign, delta, s_check, v, a1, a2;
+  data_t dq, dt_s;
+  int sign_buf;
 
   data_t vi = b->prof->vi;
+  data_t vf = b->prof->vf;
   data_t s_int = b->prof->s_inter;
   data_t s1 = b->prof->s1;
   data_t s2 = b->prof->s2;
@@ -452,13 +456,14 @@ int block_la_compute_raw_profile(block_la_t *b){
   if (b->prof->mask & 0b10000){
     // If the first acceleration bit is set, it means we have to accelerate, otherwise decelerate
     sign = ((b->prof->mask & 0b10101) == 0b10100) ? 1 : -1;
+    sign_buf = sign;
     a1 *= sign;
     // TODO is it the best way? sometimes we have issue with numerical precision,
     // and this is negative, then the sqrt fails
     delta = 2 * a1 * s_int + pow(vi, 2);
     delta = (delta < 0 && delta > - TOL) ? 0 : delta;
     d_t1 = 1/a1 * (-vi + sqrt(delta));
-    v= vi + a1 * d_t1;
+    v= vi + a1 * d_t1; 
 
     // If the second acceleration bit is set, it means we have to accelerate, otherwise decelerate
     sign = ((b->prof->mask & 0b11010) == 0b11000) ? 1 : -1;
@@ -466,6 +471,12 @@ int block_la_compute_raw_profile(block_la_t *b){
     delta = 2 * a2 * (l - s_int) + pow(v, 2);
     delta = (delta < 0 && delta > - TOL) ? 0 : delta;
     d_t2 = 1/a2 * (-v + sqrt(delta));
+
+    dt_s = quantize(d_t1 + d_t2, machine_tq(b->machine), sign_buf, &dq);
+    d_t2 += dq;
+    v = (2 * l - vi * d_t1 - vf * d_t2) / (d_t1 + d_t2);
+    a1 = (v - vi)/d_t1;
+    a2 = (vf - v)/d_t2;
   }
 
   // long block
@@ -656,6 +667,14 @@ block_la_getter(data_t, act_feedrate, act_feedrate);
 //   ___) | || (_| | |_| | (__  |  _| |_| | | | | (__ 
 //  |____/ \__\__,_|\__|_|\___| |_|  \__,_|_| |_|\___|
 // Definitions for the static functions declared above
+// Calculate the integer multiple of sampling time; also prvide the rounding
+// amount in dq
+static data_t quantize(data_t t, data_t tq, int sign, data_t *dq) {
+  data_t q;
+  q = ((size_t)(t / tq) + sign * 1) * tq;
+  *dq = q - t;
+  return q;
+}
 
 // Calculate the arc coordinates
 static int block_la_arc(block_la_t *b) {

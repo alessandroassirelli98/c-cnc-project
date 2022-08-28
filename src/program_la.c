@@ -181,30 +181,10 @@ int program_la_look_ahead(program_la_t *p, machine_t *m, char *vel_prof_f){
     if(vel_prof_f && block_la_print_velocity_profile(b, vel_prof_f)){
       eprintf("Cannot save velocity profiles\n");
     }
-    
-    t += block_la_dt(b);
 
-    // If next block is a zero velocity one
-    if (!block_la_next(b) || \
-        block_la_type(block_la_next(b)) == RAPID || \
-        block_la_type(block_la_next(b)) == NO_MOTION ){
-
-      t_star = (size_t)(t / machine_tq(m) + 1) * machine_tq(m);
-      k = t_star / t;
-      t = 0;
-
-      // Loop back to the previous zero velocity block
-      bp = b;
-      while(bp && block_la_type(bp) != RAPID && block_la_type(bp) != NO_MOTION){
-        block_la_quantize_profile(bp, k);
-        bp = block_la_prev(bp);
-      } 
-    }
-
-    tt += t_star;
     b = block_la_next(b);
-  }
-  eprintf("Total time: %f\n", tt);
+
+   }
 
   return 0;
 }
