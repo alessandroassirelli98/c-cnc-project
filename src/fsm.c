@@ -341,7 +341,6 @@ ccnc_state_t ccnc_do_interp_motion(ccnc_state_data_t *data) {
   if (block_la_dt(b) - data->t_real <= tq/2) {
     data->t_batch_elapsed += block_la_dt(b);
     next_state = CCNC_STATE_LOAD_BLOCK;
-    if (block_la_dt(b) < data->t_real) goto next_block;
   }
   lambda = block_la_lambda(b, data->t_real, &feed);
   sp = block_la_interpolate(b, lambda);
