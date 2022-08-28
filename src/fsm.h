@@ -30,6 +30,7 @@ typedef struct {
   program_la_t *prog;    // program object
   data_t t_tot;       // total program timer
   data_t t_blk;       // block timer
+  data_t t_batch_current, t_batch_elapsed, t_real;       // batch timer
 } ccnc_state_data_t;
 
 // NOTHING SHALL BE CHANGED AFTER THIS LINE!
