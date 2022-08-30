@@ -12,6 +12,7 @@ int main(int argc, char const *argv[]) {
   ccnc_state_data_t state_data = {
     .ini_file = "settings.ini",
     .prog_file = argv[1],
+    .profile_file = argv[2],
     .machine = NULL,
     .prog = NULL
   };

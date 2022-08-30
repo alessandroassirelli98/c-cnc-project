@@ -26,11 +26,12 @@ Functions and types have been generated with prefix "ccnc_"
 typedef struct {
   char *ini_file;     // INI file
   char const *prog_file;    // G-code program file
+  char const *profile_file; //file to store the abscissa domain profiles
+  data_t t_tot;       // total program timer
   machine_t *machine; // machine object
   program_la_t *prog;    // program object
-  data_t t_tot;       // total program timer
   data_t t_blk;       // block timer
-  data_t t_batch_current, t_batch_elapsed, t_real;       // batch timer
+  data_t t_batch_current, t_batch_elapsed;       // batch timers
 } ccnc_state_data_t;
 
 // NOTHING SHALL BE CHANGED AFTER THIS LINE!

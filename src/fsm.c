@@ -105,7 +105,7 @@ ccnc_state_t ccnc_do_init(ccnc_state_data_t *data) {
     goto next_state;
   }
   // if available, calculate here the look-ahead
-  program_la_look_ahead(data->prog, data->machine, "prof.csv");
+  program_la_look_ahead(data->prog, data->machine, data->profile_file);
 
   // * print G-code file
   eprintf("Parsed the program %s\n", data->prog_file);
@@ -172,7 +172,6 @@ ccnc_state_t ccnc_do_idle(ccnc_state_data_t *data) {
   data->t_tot = 0;
   data->t_batch_current = 0;
   data->t_batch_elapsed = 0;
-  data->t_real = 0;
   machine_listen_update(data->machine);
   
   switch (next_state) {
@@ -338,21 +337,20 @@ ccnc_state_t ccnc_do_interp_motion(ccnc_state_data_t *data) {
   // * interpolate position
   // * update times
   // * if lambda >= 1 transition to load_block_la
-  if (block_la_dt(b) - data->t_real <= tq/2) {
+  if (block_la_dt(b) - data->t_blk <= tq/2) {
     data->t_batch_elapsed += block_la_dt(b);
     next_state = CCNC_STATE_LOAD_BLOCK;
   }
-  lambda = block_la_lambda(b, data->t_real, &feed);
+  lambda = block_la_lambda(b, data->t_blk, &feed);
   sp = block_la_interpolate(b, lambda);
   if (!sp) {
     next_state = CCNC_STATE_LOAD_BLOCK;
     goto next_block;
   }
-  printf("%lu,%f,%f,%f,%f,%f,%f,%f,%f\n", block_la_n(b), data->t_tot, data->t_real, lambda, lambda * block_la_length(b), feed, point_x(sp), point_y(sp), point_z(sp));
+  printf("%lu,%f,%f,%f,%f,%f,%f,%f,%f\n", block_la_n(b), data->t_tot, data->t_blk, lambda, lambda * block_la_length(b), feed, point_x(sp), point_y(sp), point_z(sp));
   machine_sync(data->machine, 0);
 
   data->t_blk += tq;
-  data->t_real += tq;
   data->t_tot += tq;
   data->t_batch_current += tq;
 
@@ -410,7 +408,6 @@ void ccnc_begin_rapid(ccnc_state_data_t *data) {
   data->t_blk = 0;
   data->t_batch_current = 0;
   data->t_batch_elapsed = 0;
-  data->t_real = 0;
   // copy target coordinates into setpoint
   point_set_x(sp, point_x(target));
   point_set_y(sp, point_y(target));
@@ -425,9 +422,7 @@ void ccnc_begin_interp(ccnc_state_data_t *data) {
   // Steps:
   // reset block timer
   dq = data->t_batch_current - data->t_batch_elapsed;
-  dq = (dq >= 0) ? dq : dq + machine_tq(data->machine);
-  data->t_real = dq;
-  data->t_blk = 0;
+  data->t_blk = dq;
 }
 
 // This function is called in 1 transition:

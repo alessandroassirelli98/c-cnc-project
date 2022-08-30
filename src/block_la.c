@@ -25,11 +25,12 @@
 // Trapezoidal velocity profile
 typedef struct {
   data_t l;             // nominal feedrate and length
-  data_t vi, v, vn, vf;   // initial and final feedrate
-  data_t vi_fwd, vf_fwd, s_inter;     //Only for plottin/debugging prposes
+  point_t *w_s, *w_e; //vector tangent to the circle (if g02/g03) or direction of the line
+  data_t vi, v, vf;   // initial and final feedrate
+  data_t vi_fwd, vn, vf_fwd, s_inter;     //Only for plottin/debugging prposes
   data_t s1, s2;  //curvilinear absissa of feed transition
   data_t d_t1, d_tm, d_t2;       // trapezoid times
-  data_t dt, k;               // total time and scaling factor
+  data_t dt;               // total time and scaling factor
   data_t a1, a2;               // profile acceleration deceleration
   // | Short block | S2 Acc | S1 Acc | S2 Dec | S1 DEC
   // basically depending on the value of s1 and s2 got from the forward and backward pass
@@ -54,7 +55,6 @@ typedef struct block_la{
   data_t length;         // total length
   data_t i, j, r;        // center coordinates and radius (if it is an arc)
   data_t theta0, dtheta; // arc initial angle and arc angle
-  point_t *w_s, *w_e; //vector tangent to the circle (if g02/g03) or direction of the line
   data_t acc;            // actual acceleration
   machine_t *machine;    // machine configuration
   block_la_profile_t *prof; // velocity profile
@@ -102,8 +102,6 @@ block_la_t *block_la_new(const char *line, block_la_t *prev, machine_t *cfg) {
   b->target = point_new();
   b->delta = point_new();
   b->center = point_new();
-  b->w_s = point_new();
-  b->w_e = point_new();
 
   // allocate memory for profile struct
   b->prof = (block_la_profile_t *)calloc(1, sizeof(block_la_profile_t));
@@ -113,6 +111,8 @@ block_la_t *block_la_new(const char *line, block_la_t *prev, machine_t *cfg) {
   }
 
   b->prof->mask = 0b11111;
+  b->prof->w_s = point_new();
+  b->prof->w_e = point_new();
 
   b->machine = cfg;
   b->type = NO_MOTION;
@@ -135,8 +135,8 @@ void block_la_free(block_la_t *b) {
   point_free(b->target);
   point_free(b->center);
   point_free(b->delta);
-  point_free(b->w_s);
-  point_free(b->w_e);
+  point_free(b->prof->w_s);
+  point_free(b->prof->w_e);
   free(b);
   b = NULL;
 }
@@ -258,8 +258,8 @@ int block_la_compute_tangents(block_la_t *b){
   {
   case LINE:
     // Calculate the direction of the segment and store it
-    compute_direction(b->w_s, point_zero(b), b->target);
-    compute_direction(b->w_e, point_zero(b), b->target);
+    compute_direction(b->prof->w_s, point_zero(b), b->target);
+    compute_direction(b->prof->w_e, point_zero(b), b->target);
     break;
 
   case ARC_CW:
@@ -270,18 +270,18 @@ int block_la_compute_tangents(block_la_t *b){
     ct = cos(theta);
     st = sin(theta);
     
-    compute_direction(b->w_s, point_zero(b), b->center);
-    compute_direction(b->w_e, b->target, b->center);
+    compute_direction(b->prof->w_s, point_zero(b), b->center);
+    compute_direction(b->prof->w_e, b->target, b->center);
 
-    x = point_x(b->w_s);
-    y = point_y(b->w_s);
-    point_set_x(b->w_s, ct * x - st * y);
-    point_set_y(b->w_s, st * x + ct * y);
+    x = point_x(b->prof->w_s);
+    y = point_y(b->prof->w_s);
+    point_set_x(b->prof->w_s, ct * x - st * y);
+    point_set_y(b->prof->w_s, st * x + ct * y);
 
-    x = point_x(b->w_e);
-    y = point_y(b->w_e);
-    point_set_x(b->w_e, ct * x - st * y);
-    point_set_y(b->w_e, st * x + ct * y);
+    x = point_x(b->prof->w_e);
+    y = point_y(b->prof->w_e);
+    point_set_x(b->prof->w_e, ct * x - st * y);
+    point_set_y(b->prof->w_e, st * x + ct * y);
     break;
   default:
     break;
@@ -526,7 +526,6 @@ int block_la_compute_raw_profile(block_la_t *b){
 // v* = v/k, t* = k t
 int block_la_quantize_profile(block_la_t *b, data_t k){
 
-  b->prof->k = k;
   b->prof->d_t1 *= k;
   b->prof->d_t2 *= k;
   b->prof->d_tm *= k;
@@ -729,12 +728,12 @@ static float calc_final_velocity(block_la_t *b){
   assert(b);
 
     data_t dp, ctheta, m0, m1, v;
-    data_t x0 = point_x(b->w_e);
-    data_t y0 = point_y(b->w_e);
-    data_t z0 = point_z(b->w_e);
-    data_t x1 = point_x(b->next->w_s);
-    data_t y1 = point_y(b->next->w_s);
-    data_t z1 = point_z(b->next->w_s);
+    data_t x0 = point_x(b->prof->w_e);
+    data_t y0 = point_y(b->prof->w_e);
+    data_t z0 = point_z(b->prof->w_e);
+    data_t x1 = point_x(b->next->prof->w_s);
+    data_t y1 = point_y(b->next->prof->w_s);
+    data_t z1 = point_z(b->next->prof->w_s);
 
     // Dot product of the current tangent vector and the previous one
     dp = x0 * x1 + y0 * y1 + z0 * z1;
