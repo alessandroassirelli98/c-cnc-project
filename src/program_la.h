@@ -65,7 +65,7 @@ int program_la_parse(program_la_t *program_la, machine_t *cfg);
  * @param m the name machine object
  * @param vel_prof_f file.csv to store the velocity profiles
 **/
-int program_la_look_ahead(program_la_t *p, machine_t *m, char *vel_prof_f);
+int program_la_look_ahead(program_la_t *p, machine_t *m, const char *vel_prof_f);
 
 // linked-list navigation functions
 block_la_t *program_la_next(program_la_t *program_la);

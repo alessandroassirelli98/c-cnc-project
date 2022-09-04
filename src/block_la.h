@@ -53,7 +53,7 @@ block_la_t *block_la_new(const char *line, block_la_t *prev, machine_t *cfg);
 void block_la_free(block_la_t *b);
 void block_la_print(block_la_t *b, FILE *out);
 void block_la_print_velocity_target(block_la_t *b, FILE *out);
-int block_la_print_velocity_profile(block_la_t *b, FILE *out);
+int block_la_print_velocity_profile(block_la_t *b, const char *out);
 
 // ALGORITHMS ==================================================================
 
@@ -61,23 +61,23 @@ int block_la_print_velocity_profile(block_la_t *b, FILE *out);
 int block_la_parse(block_la_t *b);
 
 // Compute the tangents to the line at the start and end points
-int block_la_compute_tangents(block_la_t *b);
+void block_la_compute_tangents(block_la_t *b);
 
 // For the lookahead approach first all the blocks must be parsed
-int block_la_compute_velocities(block_la_t *b);
+void block_la_compute_velocities(block_la_t *b);
 
 // Computes the forward pass i.e. only accelerations
-int block_la_forward_pass(block_la_t *b);
+void block_la_forward_pass(block_la_t *b);
 
 // Computes the backward pass i.e. only decelerations
-int block_la_backward_pass(block_la_t *b);
+void block_la_backward_pass(block_la_t *b);
 
 // Compute timings and velocities without taking into account the timesteps
 int block_la_compute_raw_profile(block_la_t *b);
 
 // Rescale the block velocity and timings by a factor k
 // v* = v/k, t* = k t
-int block_la_quantize_profile(block_la_t *b, data_t k);
+void block_la_quantize_profile(block_la_t *b, data_t k);
 
 
 // Evaluate the value of lambda at a certaint time

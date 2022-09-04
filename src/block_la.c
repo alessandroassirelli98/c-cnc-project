@@ -130,15 +130,16 @@ void block_la_free(block_la_t *b) {
   assert(b);
   if (b->line)
     free(b->line);
-  if (b->prof)
+  if (b->prof){
+    free(b->prof->w_s);
+    free(b->prof->w_e);
     free(b->prof);
+  }
   point_free(b->target);
   point_free(b->center);
   point_free(b->delta);
-  point_free(b->prof->w_s);
-  point_free(b->prof->w_e);
   free(b);
-  b = NULL;
+  b = NULL; 
 }
 
 void block_la_print(block_la_t *b, FILE *out) {
@@ -162,17 +163,19 @@ void block_la_print_velocity_target(block_la_t *b, FILE *out){
 }
 
 // print the velocity target of the block
-int block_la_print_velocity_profile(block_la_t *b, FILE *out){
+int block_la_print_velocity_profile(block_la_t *b, const char *out){
   assert(b);
-  if(!(out = fopen(out, "ab"))){
+  FILE *f;
+  int rv = 0;
+  if(!(f = fopen(out, "ab"))){
     fprintf(stderr, "ERROR: cannot open %s to write the space domain velocity profile\n", out);
-    return 1;
+    rv++;
   }
-  fprintf(out, "%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->d_t1, b->prof->d_t2 ,b->prof->vi, b->prof->v,\
+  fprintf(f, "%03lu, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %f, %d, %f \n", b->n, b->length, b->prof->d_t1, b->prof->d_t2 ,b->prof->vi, b->prof->v,\
                                                       b->prof->vf, b->prof->vn,  b->prof->vi_fwd, b->prof->vf_fwd,\
                                                       b->prof->s_inter, b->prof->s1, b->prof->s2, b->prof->mask,b->acc);
-  fclose(out);
-  return 0;
+  fclose(f);
+  return rv;
 }
 
 // ALGORITHMS ==================================================================
@@ -252,7 +255,7 @@ int block_la_parse(block_la_t *b) {
   return rv;
 }
 
-int block_la_compute_tangents(block_la_t *b){
+void block_la_compute_tangents(block_la_t *b){
   data_t theta, ct, st, x, y;
   switch (b->type)
   {
@@ -288,7 +291,7 @@ int block_la_compute_tangents(block_la_t *b){
 }
 }
 
-int block_la_compute_velocities(block_la_t *b){
+void block_la_compute_velocities(block_la_t *b){
     assert(b); 
     if ( b->type != RAPID && b->type != NO_MOTION){
         data_t vi, vf;
@@ -307,20 +310,17 @@ int block_la_compute_velocities(block_la_t *b){
         b->prof->vi = vi;
         b->prof->vf = vf;
     }
-    return 0;
 }
 
 // Computes the forward pass i.e. only accelerations
 // Note that here we do not "cover" the deceleration bits,
 // since they have higher priority
-int block_la_forward_pass(block_la_t *b){
+void block_la_forward_pass(block_la_t *b){
   assert(b);
-  if(b->type == RAPID | b->type == NO_MOTION) return 0;
+  if(b->type == RAPID | b->type == NO_MOTION) return;
 
   data_t v_max;
-  data_t *s1, *s2;
-  s1 = calloc(1, sizeof(data_t));
-  s2 = calloc(1, sizeof(data_t));
+  data_t s1, s2;
 
   // Maximum final velocity that can be reached in the current block
   v_max = sqrt(2*b->acc * b->length + pow((b->prof->vi),2));
@@ -330,40 +330,35 @@ int block_la_forward_pass(block_la_t *b){
     b->next->prof->vi = v_max;
   }
 
-  calc_s1_s2(b, s1, s2, 1);
+  calc_s1_s2(b, &s1, &s2, 1);
 
   // If it founds s1 positive, then we may start with a acceleration
-  if (*s1 >= 0){
+  if (s1 >= 0){
     b->prof->mask &= 0b11111;
-    b->prof->s1 = *s1;
+    b->prof->s1 = s1;
   }
   else b->prof->mask &= 0b11011;
 
   // If it founds s2 < L, then we may end with a deceleration
-  if (*s2 <= b->length){
+  if (s2 <= b->length){
     b->prof->mask &= 0b11111; 
-    b->prof->s2 = *s2;
+    b->prof->s2 = s2;
   }
   else b->prof->mask &= 0b10111;
 
   b->prof->vi_fwd = b->prof->vi;
   b->prof->vf_fwd = b->prof->vf;
 
-  free(s1);
-  free(s2);
-  return 0;
+  return;
 }
 
-int block_la_backward_pass(block_la_t *b){
+void block_la_backward_pass(block_la_t *b){
   assert(b);
-  if(b->type == RAPID | b->type == NO_MOTION) return 0;
+  if(b->type == RAPID | b->type == NO_MOTION) return;
 
   data_t v_max;
-  data_t *s1, *s2;
+  data_t s1, s2;
   int temp_mask = 0b11111;
-
-  s1 = calloc(1, sizeof(data_t));
-  s2 = calloc(1, sizeof(data_t));
 
   // Check if the final velocity can be reached, 
   // If not, then lower it
@@ -375,19 +370,19 @@ int block_la_backward_pass(block_la_t *b){
     b->prof->mask &= 0b10011;
   }
 
-  calc_s1_s2(b, s1, s2, -1);
+  calc_s1_s2(b, &s1, &s2, -1);
 
   // If it founds s1 positive, then we start with a deceleration
-  if (*s1 >= 0){
+  if (s1 >= 0){
     temp_mask &= 0b11011;
-    b->prof->s1 = *s1;
+    b->prof->s1 = s1;
   }
   else temp_mask &= 0b11110;
 
   // If it founds s2 < L, then we end with a deceleration
-  if (*s2 <= b->length){
+  if (s2 <= b->length){
     temp_mask &= 0b10111; 
-    b->prof->s2 = *s2;
+    b->prof->s2 = s2;
   }
   else temp_mask &= 0b11101;
   
@@ -420,14 +415,10 @@ int block_la_backward_pass(block_la_t *b){
   // the target vf of the previous block is decreased wrt to the forward pass
   // then the acceleration starting point we computed in the forward pass must be changed in order to
   // comply with the new point.
-  calc_s1_s2(b, s1, s2, 1);
-  b->prof->s2 = (!(b->prof->mask & 0b00010)) ? *s2 : b->prof->s2; 
-  b->prof->s1 = (!(b->prof->mask & 0b00001)) ? *s1 : b->prof->s1;
-
-  free(s1);
-  free(s2);
-
-  return 0;
+  calc_s1_s2(b, &s1, &s2, 1);
+  b->prof->s2 = (!(b->prof->mask & 0b00010)) ? s2 : b->prof->s2; 
+  b->prof->s1 = (!(b->prof->mask & 0b00001)) ? s1 : b->prof->s1;
+  return;
 }
 
 // Compute timings and velocities without taking into account the timesteps
@@ -478,7 +469,6 @@ int block_la_compute_raw_profile(block_la_t *b){
     d_t1 = 1/a1 * (-vi + sqrt(delta));
     
     v = vi +  a1 * d_t1;
-
     d_tm = (s2 - s1)/v;
     
     sign = ((b->prof->mask & 0b01010) == 0b01000) ? 1 : -1;
@@ -524,7 +514,7 @@ int block_la_compute_raw_profile(block_la_t *b){
 
 // Rescale the block velocity and timings by a factor k
 // v* = v/k, t* = k t
-int block_la_quantize_profile(block_la_t *b, data_t k){
+void block_la_quantize_profile(block_la_t *b, data_t k){
 
   b->prof->d_t1 *= k;
   b->prof->d_t2 *= k;
@@ -537,15 +527,12 @@ int block_la_quantize_profile(block_la_t *b, data_t k){
   b->prof->a1 /= pow(k, 2);
   b->prof->a2 /= pow(k, 2);
 
-  return 0;
-
-
 }
 
 // Evaluate the value of lambda at a certaint time
 data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
   assert(b);
-  data_t s1, s2, v1, scheck;
+  data_t s1, s2, v1;
   data_t r;
   data_t d_t1 = b->prof->d_t1;
   data_t d_t2 = b->prof->d_t2;
@@ -581,17 +568,6 @@ data_t block_la_lambda(const block_la_t *b, data_t t, data_t *v) {
   }
 
   else {
-    // Sanity check
-    s1 = vi * d_t1 + a1 / 2.0 * pow(d_t1, 2);
-    v1 = vi + a1 * d_t1;
-    s2 = s1 + v1 * d_tm;
-    scheck = s2 + v1 * d_t2 + a2 / 2 * pow(d_t2, 2);
-
-    if (fabs(b->length - scheck) > TOL){
-      fprintf(stderr, "ERROR IN INTERPOLATION of block %03lu error is : %f\n", b->n, b->length - scheck);
-      return 1;
-    }
-
     r = b->prof->l;
     *v = b->prof->vf;
   }
@@ -752,7 +728,7 @@ static float calc_final_velocity(block_la_t *b){
 
 // Compute s1 and s2 of the block, sign should be 1 for forward, -1 for backward
 static void calc_s1_s2(block_la_t *b, data_t *s1, data_t *s2, int sign){
-  assert(s1 && s2);
+  assert(b && s1 && s2);
   *s1 = (pow(b->prof->v, 2) - pow(b->prof->vi, 2)) / (2 * sign *b->acc);
   *s2 = b->length + (pow(b->prof->v, 2) - pow(b->prof->vf, 2)) / (2 * sign * b->acc);
 }

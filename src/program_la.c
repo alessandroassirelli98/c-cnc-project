@@ -129,7 +129,7 @@ int program_la_parse(program_la_t *p, machine_t *cfg) {
   return EXIT_SUCCESS;
 }
 
-int program_la_look_ahead(program_la_t *p, machine_t *m, char *vel_prof_f){
+int program_la_look_ahead(program_la_t *p, machine_t *m,  const char *vel_prof_f){
   assert (p && m);
   block_la_t *b = p->first;
   block_la_t *bp;
@@ -179,7 +179,7 @@ int program_la_look_ahead(program_la_t *p, machine_t *m, char *vel_prof_f){
       exit(EXIT_FAILURE);
     }
     if(vel_prof_f && block_la_print_velocity_profile(b, vel_prof_f)){
-      eprintf("Cannot save velocity profiles\n");
+      eprintf("Cannot save velocity profiles in %s\n", vel_prof_f);
     }
     
     t += block_la_dt(b);
