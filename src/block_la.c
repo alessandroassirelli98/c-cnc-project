@@ -519,6 +519,7 @@ void block_la_quantize_profile(block_la_t *b, data_t k){
   b->prof->d_t1 *= k;
   b->prof->d_t2 *= k;
   b->prof->d_tm *= k;
+  b->prof->dt *= k;
 
   b->prof->vi /= k;
   b->prof->v /=k;

@@ -337,7 +337,7 @@ ccnc_state_t ccnc_do_interp_motion(ccnc_state_data_t *data) {
   // * interpolate position
   // * update times
   // * if lambda >= 1 transition to load_block_la
-  if (block_la_dt(b) - data->t_blk <= tq/2) {
+  if (block_la_dt(b) <= data->t_blk + tq) {
     data->t_batch_elapsed += block_la_dt(b);
     next_state = CCNC_STATE_LOAD_BLOCK;
   }
@@ -391,6 +391,8 @@ void ccnc_reset(ccnc_state_data_t *data) {
   // Steps:
   // reset both timers
   data->t_blk = data->t_tot = 0;
+  data->t_batch_current = 0;
+  data->t_batch_elapsed = 0;
   printf("n,t_tot,t_blk,lambda,s,feed,x,y,z\n");
 }
 

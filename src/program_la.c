@@ -165,7 +165,6 @@ int program_la_look_ahead(program_la_t *p, machine_t *m,  const char *vel_prof_f
   eprintf("Computing timings ...\n");
   data_t k;
   data_t t = 0;
-  data_t tt = 0;
   data_t t_star = 0;
   
   b = p->first;
@@ -200,8 +199,14 @@ int program_la_look_ahead(program_la_t *p, machine_t *m,  const char *vel_prof_f
         bp = block_la_prev(bp);
       } 
     }
+    b = block_la_next(b);
+  }
 
-    tt += t_star;
+  // Check total time
+  data_t tt = 0;
+  b = p->first;
+  while(b){
+    tt += block_la_dt(b);
     b = block_la_next(b);
   }
   eprintf("Total time: %f\n", tt);
